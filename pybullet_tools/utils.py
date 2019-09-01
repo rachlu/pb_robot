@@ -50,6 +50,7 @@ MINITAUR_URDF = "quadruped/minitaur.urdf"
 HUMANOID_MJCF = "mjcf/humanoid.xml"
 HUSKY_URDF = "husky/husky.urdf"
 RACECAR_URDF = 'racecar/racecar.urdf' # racecar_differential.urdf
+YUMI_URDF = "models/yumi_description/yumi.urdf"
 
 # Objects
 KIVA_SHELF_SDF = "kiva_shelf/model.sdf"
