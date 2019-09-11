@@ -1,13 +1,13 @@
 import time
 # dump_body(robot)
 
-from .pr2_utils import get_top_grasps
-from .utils import get_pose, set_pose, get_movable_joints, \
-    set_joint_positions, add_fixed_constraint, enable_real_time, disable_real_time, joint_controller, \
+from .utils import get_pose, set_pose, get_movable_joints, set_joint_positions
+from .utils import add_fixed_constraint, enable_real_time, disable_real_time, joint_controller, \
     enable_gravity, get_refine_fn, user_input, wait_for_duration, link_from_name, get_body_name, sample_placement, \
-    end_effector_from_body, approach_from_grasp, plan_joint_motion, GraspInfo, Pose, INF, Point, \
+    end_effector_from_body, approach_from_grasp, plan_joint_motion, GraspInfo, \
     inverse_kinematics, pairwise_collision, remove_fixed_constraint, Attachment, get_sample_fn, \
     step_simulation, refine_path, plan_direct_joint_motion, get_joint_positions, dump_world
+from .geometry import Pose, Point
 
 DEBUG_FAILURE = False
 

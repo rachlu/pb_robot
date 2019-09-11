@@ -4,9 +4,11 @@ import numpy as np
 import time
 from itertools import product
 
-from .utils import unit_pose, safe_zip, multiply, Pose, AABB, create_box, set_pose, get_all_links, LockRenderer, \
+from .utils import AABB, create_box, set_pose, get_all_links, LockRenderer, \
     get_aabb, pairwise_link_collision, remove_body, draw_aabb, get_box_geometry, create_shape, create_body, STATIC_MASS, \
-    unit_quat, unit_point, CLIENT, create_shape_array, set_color, get_point, clip, load_model, TEMP_DIR, NULL_ID, elapsed_time
+    CLIENT, create_shape_array, set_color, get_point, load_model, TEMP_DIR, NULL_ID, elapsed_time
+from .geometry import unit_pose, multiply, Pose, unit_quat, unit_point
+from .helper import safe_zip, clip
 
 MAX_TEXTURE_WIDTH = 418 # max square dimension
 MAX_PIXEL_VALUE = 255

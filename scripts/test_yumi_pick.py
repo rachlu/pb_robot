@@ -2,13 +2,14 @@
 
 from __future__ import print_function
 
+import ss_pybullet
 from ss_pybullet.yumi_primitives import get_grasp_gen
 from ss_pybullet.primitives import BodyPose, BodyConf, Command, \
     get_ik_fn, get_free_motion_gen, get_holding_motion_gen
 from ss_pybullet.utils import WorldSaver, enable_gravity, connect, dump_world, set_pose, \
-    Pose, Point, set_default_camera, stable_z, YUMI_URDF, \
+    set_default_camera, stable_z, YUMI_URDF, \
     BLOCK_URDF, load_model, wait_for_user, disconnect, user_input, update_state, disable_real_time
-
+from ss_pybullet.geometry import Pose, Point
 
 def plan(robot, block, fixed, teleport):
     grasp_gen = get_grasp_gen(robot, 'top')
@@ -37,11 +38,14 @@ def plan(robot, block, fixed, teleport):
         return Command(path1.body_paths + path2.body_paths + path3.body_paths)
     return None
 
-
 def main(display='execute'): # control | execute | step
     connect(use_gui=True)
     disable_real_time()
-    robot = load_model(YUMI_URDF) 
+    #robot = load_model(YUMI_URDF) 
+    yumi = ss_pybullet.body.Body(YUMI_URDF)
+
+    import IPython
+    IPython.embed()
     floor = load_model('models/short_floor.urdf')
     block = load_model(BLOCK_URDF, fixed_base=False)
     set_pose(block, Pose(Point(y=0., x=0.5, z=stable_z(block, floor))))
@@ -49,10 +53,10 @@ def main(display='execute'): # control | execute | step
     dump_world()
 
     saved_world = WorldSaver()
-    command = plan(robot, block, fixed=[floor], teleport=False)
-    if (command is None) or (display is None):
-        print('Unable to find a plan!')
-        return
+    #command = plan(robot, block, fixed=[floor], teleport=False)
+    #if (command is None) or (display is None):
+    #    print('Unable to find a plan!')
+    #    return
 
     saved_world.restore()
     update_state()

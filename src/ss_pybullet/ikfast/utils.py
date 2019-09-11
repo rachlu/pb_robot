@@ -1,8 +1,8 @@
 import random
 import numpy as np
 
-from ..utils import matrix_from_quat, point_from_pose, quat_from_pose, quat_from_matrix, \
-    get_joint_limits, get_joint_position, get_joint_positions, get_distance
+from ..utils import get_joint_limits, get_joint_position, get_joint_positions, matrix_from_quat
+from ..geometry import point_from_pose, quat_from_pose, quat_from_matrix, get_distance
 
 # TODO: lookup robot & tool in dictionary and use if exists
 

@@ -1,9 +1,11 @@
 import numpy as np
 
 from pr2_utils import DRAKE_PR2_URDF, set_group_conf, REST_LEFT_ARM, rightarm_from_leftarm
-from utils import HideOutput, load_model, base_values_from_pose, has_joint, set_joint_position, \
-    joint_from_name, get_box_geometry, create_shape, Pose, Point, STATIC_MASS, NULL_ID, CLIENT, set_pose, \
+from utils import load_model, has_joint, set_joint_position, \
+    joint_from_name, get_box_geometry, create_shape, STATIC_MASS, NULL_ID, CLIENT, set_pose, \
     get_cylinder_geometry, get_sphere_geometry, create_shape_array, create_body
+from .helper import HideOutput
+from .geometry import Pose, Point, base_values_from_pose
 
 
 def parse_point(point_json):

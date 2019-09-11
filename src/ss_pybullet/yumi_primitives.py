@@ -1,12 +1,16 @@
 
 from .pr2_utils import get_top_grasps
-from .utils import Pose, INF, Point, GraspInfo
+from .utils import INF, GraspInfo
 from .primitives import link_from_name, get_body_name, BodyGrasp
- 
+from .geometry import Pose, Point
+GRASP_INFO = {}
+
+
 GRASP_INFO = {
     'top': GraspInfo(lambda body: get_top_grasps(body, under=True, tool_pose=Pose(), max_width=INF, grasp_length=0),
                      approach_pose=Pose(0.1*Point(z=1))),
 }
+
 
 ARM_NAMES = ('left', 'right')
 

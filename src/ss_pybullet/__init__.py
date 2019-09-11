@@ -1,3 +1,5 @@
+import utils
+import body
 import primitives
 import kuka_primitives
 import parse_json
@@ -6,7 +8,6 @@ import pr2_primitives
 import pr2_problems
 import pr2_utils
 import transformations
-import utils
 import voxels
 import yumi_primitives
 
