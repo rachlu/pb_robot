@@ -2,13 +2,14 @@
 
 from __future__ import print_function
 
+import IPython
 import ss_pybullet
 from ss_pybullet.yumi_primitives import get_grasp_gen
 from ss_pybullet.primitives import BodyPose, BodyConf, Command, \
     get_ik_fn, get_free_motion_gen, get_holding_motion_gen
-from ss_pybullet.utils import WorldSaver, enable_gravity, connect, dump_world, set_pose, \
+from ss_pybullet.utils_noBase import WorldSaver, enable_gravity, connect, dump_world, \
     set_default_camera, stable_z, YUMI_URDF, \
-    BLOCK_URDF, load_model, wait_for_user, disconnect, user_input, update_state, disable_real_time
+    BLOCK_URDF, wait_for_user, disconnect, user_input, update_state, disable_real_time
 from ss_pybullet.geometry import Pose, Point
 
 def plan(robot, block, fixed, teleport):
@@ -42,24 +43,26 @@ def main(display='execute'): # control | execute | step
     connect(use_gui=True)
     disable_real_time()
     #robot = load_model(YUMI_URDF) 
-    yumi = ss_pybullet.body.Body(YUMI_URDF)
+    #floor = load_model('models/short_floor.urdf')
+    #block = load_model(BLOCK_URDF, fixed_base=False)
 
-    import IPython
-    IPython.embed()
-    floor = load_model('models/short_floor.urdf')
-    block = load_model(BLOCK_URDF, fixed_base=False)
-    set_pose(block, Pose(Point(y=0., x=0.5, z=stable_z(block, floor))))
+    yumi = ss_pybullet.body.Body(YUMI_URDF)
+    floor = ss_pybullet.body.Body('models/short_floor.urdf')
+    block = ss_pybullet.body.Body(BLOCK_URDF, fixed_base=False)
+    block.set_pose(Pose(Point(y=0., x=0.5, z=stable_z(block, floor))))
     set_default_camera()
-    dump_world()
+    #dump_world()
+
+    IPython.embed()
 
     saved_world = WorldSaver()
-    #command = plan(robot, block, fixed=[floor], teleport=False)
+    command = plan(robot, block, fixed=[floor], teleport=False)
     #if (command is None) or (display is None):
     #    print('Unable to find a plan!')
     #    return
 
     saved_world.restore()
-    update_state()
+    '''update_state()
     user_input('{}?'.format(display))
     if display == 'control':
         enable_gravity()
@@ -70,7 +73,7 @@ def main(display='execute'): # control | execute | step
         command.step()
     else:
         raise ValueError(display)
-
+    '''
     print('Quit?')
     wait_for_user()
     disconnect()

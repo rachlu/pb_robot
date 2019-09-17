@@ -1,0 +1,2700 @@
+from __future__ import print_function
+
+import colorsys
+import math
+import os
+import random
+import time
+from collections import defaultdict, deque, namedtuple
+from itertools import product, combinations, count
+import numpy as np
+import pybullet as p
+
+from crg_planners.rrt_connect import birrt, direct_path
+#from ..motion.motion_planners.rrt_connect import birrt, direct_path
+import ss_pybullet.helper as helper
+import ss_pybullet.geometry as geometry
+
+# from future_builtins import map, filter
+# from builtins import input # TODO - use future
+try:
+    user_input = raw_input
+except NameError:
+    user_input = input
+
+INF = np.inf
+PI = np.pi
+CIRCULAR_LIMITS = -PI, PI
+UNBOUNDED_LIMITS = -INF, INF
+DEFAULT_TIME_STEP = 1./240. # seconds
+BASE_LINK = -1
+STATIC_MASS = 0
+
+#####################################
+
+# Models
+
+# Robots
+ROOMBA_URDF = 'models/turtlebot/roomba.urdf'
+TURTLEBOT_URDF = 'models/turtlebot/turtlebot_holonomic.urdf'
+DRAKE_IIWA_URDF = "models/drake/iiwa_description/urdf/iiwa14_polytope_collision.urdf"
+KUKA_IIWA_URDF = "kuka_iiwa/model.urdf"
+KUKA_IIWA_GRIPPER_SDF = "kuka_iiwa/kuka_with_gripper.sdf"
+R2D2_URDF = "r2d2.urdf"
+MINITAUR_URDF = "quadruped/minitaur.urdf"
+HUMANOID_MJCF = "mjcf/humanoid.xml"
+HUSKY_URDF = "husky/husky.urdf"
+RACECAR_URDF = 'racecar/racecar.urdf' # racecar_differential.urdf
+YUMI_URDF = "models/yumi_description/yumi.urdf"
+
+# Objects
+KIVA_SHELF_SDF = "kiva_shelf/model.sdf"
+SMALL_BLOCK_URDF = "models/drake/objects/block_for_pick_and_place.urdf"
+BLOCK_URDF = "models/drake/objects/block_for_pick_and_place_mid_size.urdf"
+SINK_URDF = 'models/sink.urdf'
+STOVE_URDF = 'models/stove.urdf'
+
+#####################################
+
+# Savers
+
+# TODO: contextlib
+
+class Saver(object):
+    def restore(self):
+        raise NotImplementedError()
+    def __enter__(self):
+        # TODO: move the saving to enter?
+        pass
+    def __exit__(self, type, value, traceback):
+        self.restore()
+
+class ClientSaver(Saver):
+    def __init__(self, new_client=None):
+        self.client = CLIENT
+        if new_client is not None:
+            set_client(new_client)
+
+    def restore(self):
+        set_client(self.client)
+
+    def __repr__(self):
+        return '{}({})'.format(self.__class__.__name__, self.client)
+
+class VideoSaver(Saver):
+    def __init__(self, path):
+        if path is None:
+            self.log_id = None
+        else:
+            name, ext = os.path.splitext(path)
+            assert ext == '.mp4'
+            # STATE_LOGGING_PROFILE_TIMINGS, STATE_LOGGING_ALL_COMMANDS
+            # p.submitProfileTiming("pythontest")
+            self.log_id = p.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, fileName=path, physicsClientId=CLIENT)
+
+    def restore(self):
+        if self.log_id is not None:
+            p.stopStateLogging(self.log_id)
+
+#####################################
+
+class PoseSaver(Saver):
+    def __init__(self, body):
+        self.body = body
+        self.pose = self.body.get_pose()
+        self.velocity = self.body.get_velocity()
+
+    def apply_mapping(self, mapping):
+        self.body = mapping.get(self.body, self.body)
+
+    def restore(self):
+        self.body.set_pose(self.pose)
+        self.body.set_velocity(*self.velocity)
+
+    def __repr__(self):
+        return '{}({})'.format(self.__class__.__name__, self.body)
+
+class ConfSaver(Saver):
+    def __init__(self, body): #, joints):
+        self.body = body
+        self.conf = body.get_configuration()
+
+    def apply_mapping(self, mapping):
+        self.body = mapping.get(self.body, self.body)
+
+    def restore(self):
+        self.body.set_configuration(self.conf)
+
+    def __repr__(self):
+        return '{}({})'.format(self.__class__.__name__, self.body)
+
+#####################################
+
+class BodySaver(Saver):
+    def __init__(self, body): #, pose=None):
+        #if pose is None:
+        #    pose = get_pose(body)
+        self.body = body
+        self.pose_saver = PoseSaver(body)
+        self.conf_saver = ConfSaver(body)
+        self.savers = [self.pose_saver, self.conf_saver]
+        # TODO: store velocities
+
+    def apply_mapping(self, mapping):
+        for saver in self.savers:
+            saver.apply_mapping(mapping)
+
+    def restore(self):
+        for saver in self.savers:
+            saver.restore()
+
+    def __repr__(self):
+        return '{}({})'.format(self.__class__.__name__, self.body)
+
+class WorldSaver(Saver):
+    def __init__(self):
+        self.body_savers = [BodySaver(body) for body in get_bodies()]
+        # TODO: add/remove new bodies
+
+    def restore(self):
+        for body_saver in self.body_savers:
+            body_saver.restore()
+
+#####################################
+
+# Simulation
+
+CLIENTS = {}
+CLIENT = 0
+
+def get_client(client=None):
+    if client is None:
+        return CLIENT
+    return client
+
+def set_client(client):
+    global CLIENT
+    CLIENT = client
+
+ModelInfo = namedtuple('URDFInfo', ['name', 'path', 'fixed_base', 'scale'])
+
+INFO_FROM_BODY = {}
+
+def get_model_info(body):
+    key = (CLIENT, body)
+    return INFO_FROM_BODY.get(key, None)
+
+def get_urdf_flags(cache=False, cylinder=False):
+    # by default, Bullet disables self-collision
+    # URDF_INITIALIZE_SAT_FEATURES
+    # URDF_ENABLE_CACHED_GRAPHICS_SHAPES seems to help
+    # but URDF_INITIALIZE_SAT_FEATURES does not (might need to be provided a mesh)
+    # flags = p.URDF_INITIALIZE_SAT_FEATURES | p.URDF_ENABLE_CACHED_GRAPHICS_SHAPES
+    flags = 0
+    if cache:
+        flags |= p.URDF_ENABLE_CACHED_GRAPHICS_SHAPES
+    if cylinder:
+        flags |= p.URDF_USE_IMPLICIT_CYLINDER
+    return flags
+
+def load_pybullet(filename, fixed_base=False, scale=1., **kwargs):
+    # fixed_base=False implies infinite base mass
+    with LockRenderer():
+        if filename.endswith('.urdf'):
+            flags = get_urdf_flags(**kwargs)
+            body = p.loadURDF(filename, useFixedBase=fixed_base, flags=flags,
+                              globalScaling=scale, physicsClientId=CLIENT)
+        elif filename.endswith('.sdf'):
+            body = p.loadSDF(filename, physicsClientId=CLIENT)
+        elif filename.endswith('.xml'):
+            body = p.loadMJCF(filename, physicsClientId=CLIENT)
+        elif filename.endswith('.bullet'):
+            body = p.loadBullet(filename, physicsClientId=CLIENT)
+        elif filename.endswith('.obj'):
+            # TODO: fixed_base => mass = 0?
+            body = create_obj(filename, scale=scale, **kwargs)
+        else:
+            raise ValueError(filename)
+    INFO_FROM_BODY[CLIENT, body] = ModelInfo(None, filename, fixed_base, scale)
+    return body
+
+def set_caching(cache):
+    p.setPhysicsEngineParameter(enableFileCaching=int(cache), physicsClientId=CLIENT)
+
+def load_model_info(info):
+    # TODO: disable file caching to reuse old filenames
+    # p.setPhysicsEngineParameter(enableFileCaching=0, physicsClientId=CLIENT)
+    if info.path.endswith('.urdf'):
+        return load_pybullet(info.path, fixed_base=info.fixed_base, scale=info.scale)
+    if info.path.endswith('.obj'):
+        mass = STATIC_MASS if info.fixed_base else 1.
+        return create_obj(info.path, mass=mass, scale=info.scale)
+    raise NotImplementedError(info.path)
+
+
+URDF_FLAGS = [p.URDF_USE_INERTIA_FROM_FILE,
+              p.URDF_USE_SELF_COLLISION,
+              p.URDF_USE_SELF_COLLISION_EXCLUDE_PARENT,
+              p.URDF_USE_SELF_COLLISION_EXCLUDE_ALL_PARENTS]
+
+
+def get_model_path(rel_path): # TODO: add to search path
+    directory = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(directory, rel_path)
+
+def load_model(rel_path, pose=None, **kwargs):
+    # TODO: error with loadURDF when loading MESH visual and CYLINDER collision
+    abs_path = get_model_path(rel_path)
+    add_data_path()
+    #with LockRenderer():
+    body = load_pybullet(abs_path, **kwargs)
+    if pose is not None:
+        body.set_pose(pose)
+    return body
+
+#####################################
+
+# class World(object):
+#     def __init__(self, client):
+#         self.client = client
+#         self.bodies = {}
+#     def activate(self):
+#         set_client(self.client)
+#     def load(self, path, name=None, fixed_base=False, scale=1.):
+#         body = p.loadURDF(path, useFixedBase=fixed_base, physicsClientId=self.client)
+#         self.bodies[body] = URDFInfo(name, path, fixed_base, scale)
+#         return body
+#     def remove(self, body):
+#         del self.bodies[body]
+#         return p.removeBody(body, physicsClientId=self.client)
+#     def reset(self):
+#         p.resetSimulation(physicsClientId=self.client)
+#         self.bodies = {}
+#     # TODO: with statement
+#     def copy(self):
+#         raise NotImplementedError()
+#     def __repr__(self):
+#         return '{}({})'.format(self.__class__.__name__, len(self.bodies))
+
+#####################################
+
+def elapsed_time(start_time):
+    return time.time() - start_time
+
+MouseEvent = namedtuple('MouseEvent', ['eventType', 'mousePosX', 'mousePosY', 'buttonIndex', 'buttonState'])
+
+def get_mouse_events():
+    return list(MouseEvent(*event) for event in p.getMouseEvents(physicsClientId=CLIENT))
+
+def update_viewer():
+    # https://docs.python.org/2/library/select.html
+    # events = p.getKeyboardEvents() # TODO: only works when the viewer is in focus
+    get_mouse_events()
+    # for k, v in keys.items():
+    #    #p.KEY_IS_DOWN, p.KEY_WAS_RELEASED, p.KEY_WAS_TRIGGERED
+    #    if (k == p.B3G_RETURN) and (v & p.KEY_WAS_TRIGGERED):
+    #        return
+    # time.sleep(1e-3) # Doesn't work
+    # disable_gravity()
+
+def wait_for_duration(duration): #, dt=0):
+    t0 = time.time()
+    while elapsed_time(t0) <= duration:
+        update_viewer()
+
+def simulate_for_duration(duration):
+    dt = get_time_step()
+    for i in range(int(duration / dt)):
+        step_simulation()
+
+def get_time_step():
+    # {'gravityAccelerationX', 'useRealTimeSimulation', 'gravityAccelerationZ', 'numSolverIterations',
+    # 'gravityAccelerationY', 'numSubSteps', 'fixedTimeStep'}
+    return p.getPhysicsEngineParameters(physicsClientId=CLIENT)['fixedTimeStep']
+
+def enable_separating_axis_test():
+    p.setPhysicsEngineParameter(enableSAT=1, physicsClientId=CLIENT)
+    #p.setCollisionFilterPair()
+    #p.setCollisionFilterGroupMask()
+    #p.setInternalSimFlags()
+    # enableFileCaching: Set to 0 to disable file caching, such as .obj wavefront file loading
+    #p.getAPIVersion() # TODO: check that API is up-to-date
+    #p.isNumpyEnabled()
+
+def simulate_for_sim_duration(sim_duration, real_dt=0, frequency=INF):
+    t0 = time.time()
+    sim_dt = get_time_step()
+    sim_time = 0
+    last_print = 0
+    while sim_time < sim_duration:
+        if frequency < (sim_time - last_print):
+            print('Sim time: {:.3f} | Real time: {:.3f}'.format(sim_time, elapsed_time(t0)))
+            last_print = sim_time
+        step_simulation()
+        sim_time += sim_dt
+        time.sleep(real_dt)
+
+def wait_for_user(message='Press enter to continue'):
+    if helper.is_darwin():
+        # OS X doesn't multi-thread the OpenGL visualizer
+        #wait_for_interrupt()
+        return threaded_input(message)
+    return user_input(message)
+
+def is_unlocked():
+    return CLIENTS[CLIENT] is True
+
+def wait_if_unlocked(*args, **kwargs):
+    if is_unlocked():
+        wait_for_user(*args, **kwargs)
+
+def wait_for_interrupt(max_time=np.inf):
+    """
+    Hold Ctrl to move the camera as well as zoom
+    """
+    print('Press Ctrl-C to continue')
+    try:
+        wait_for_duration(max_time)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print()
+
+def disable_viewer():
+    p.configureDebugVisualizer(p.COV_ENABLE_GUI, False, physicsClientId=CLIENT)
+    p.configureDebugVisualizer(p.COV_ENABLE_SEGMENTATION_MARK_PREVIEW, False, physicsClientId=CLIENT)
+    p.configureDebugVisualizer(p.COV_ENABLE_DEPTH_BUFFER_PREVIEW, False, physicsClientId=CLIENT)
+    p.configureDebugVisualizer(p.COV_ENABLE_RGB_BUFFER_PREVIEW, False, physicsClientId=CLIENT)
+    #p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, False, physicsClientId=CLIENT)
+    #p.configureDebugVisualizer(p.COV_ENABLE_SINGLE_STEP_RENDERING, True, physicsClientId=CLIENT)
+    #p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, False, physicsClientId=CLIENT)
+    #p.configureDebugVisualizer(p.COV_ENABLE_WIREFRAME, True, physicsClientId=CLIENT)
+    #p.COV_ENABLE_MOUSE_PICKING, p.COV_ENABLE_KEYBOARD_SHORTCUTS
+
+def set_renderer(enable):
+    client = CLIENT
+    if not has_gui(client):
+        return
+    CLIENTS[client] = enable
+    p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, int(enable), physicsClientId=client)
+
+class LockRenderer(Saver):
+    # disabling rendering temporary makes adding objects faster
+    def __init__(self, lock=True):
+        self.client = CLIENT
+        self.state = CLIENTS[self.client]
+        # skip if the visualizer isn't active
+        if has_gui(self.client) and lock:
+            set_renderer(enable=False)
+
+    def restore(self):
+        if not has_gui(self.client):
+            return
+        assert self.state is not None
+        if self.state != CLIENTS[self.client]:
+            set_renderer(enable=self.state)
+
+def connect(use_gui=True, shadows=True):
+    # Shared Memory: execute the physics simulation and rendering in a separate process
+    # https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/vrminitaur.py#L7
+    # make sure to compile pybullet with PYBULLET_USE_NUMPY enabled
+    if use_gui and not helper.is_darwin() and ('DISPLAY' not in os.environ):
+        use_gui = False
+        print('No display detected!')
+    method = p.GUI if use_gui else p.DIRECT
+    with helper.HideOutput():
+        # options="--width=1024 --height=768"
+        #  --window_backend=2 --render_device=0'
+        sim_id = p.connect(method)
+        #sim_id = p.connect(p.GUI, options="--opengl2") if use_gui else p.connect(p.DIRECT)
+    assert 0 <= sim_id 
+    #sim_id2 = p.connect(p.SHARED_MEMORY)
+    #print(sim_id, sim_id2)
+    CLIENTS[sim_id] = True if use_gui else None
+    if use_gui:
+        # p.COV_ENABLE_PLANAR_REFLECTION
+        # p.COV_ENABLE_SINGLE_STEP_RENDERING
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, False, physicsClientId=sim_id)
+        p.configureDebugVisualizer(p.COV_ENABLE_TINY_RENDERER, False, physicsClientId=sim_id)
+        p.configureDebugVisualizer(p.COV_ENABLE_RGB_BUFFER_PREVIEW, False, physicsClientId=sim_id)
+        p.configureDebugVisualizer(p.COV_ENABLE_DEPTH_BUFFER_PREVIEW, False, physicsClientId=sim_id)
+        p.configureDebugVisualizer(p.COV_ENABLE_SEGMENTATION_MARK_PREVIEW, False, physicsClientId=sim_id)
+        p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, shadows, physicsClientId=sim_id)
+
+    # you can also use GUI mode, for faster OpenGL rendering (instead of TinyRender CPU)
+    #visualizer_options = {
+    #    p.COV_ENABLE_WIREFRAME: 1,
+    #    p.COV_ENABLE_SHADOWS: 0,
+    #    p.COV_ENABLE_RENDERING: 0,
+    #    p.COV_ENABLE_TINY_RENDERER: 1,
+    #    p.COV_ENABLE_RGB_BUFFER_PREVIEW: 0,
+    #    p.COV_ENABLE_DEPTH_BUFFER_PREVIEW: 0,
+    #    p.COV_ENABLE_SEGMENTATION_MARK_PREVIEW: 0,
+    #    p.COV_ENABLE_VR_RENDER_CONTROLLERS: 0,
+    #    p.COV_ENABLE_VR_PICKING: 0,
+    #    p.COV_ENABLE_VR_TELEPORTING: 0,
+    #}
+    #for pair in visualizer_options.items():
+    #    p.configureDebugVisualizer(*pair)
+    return sim_id
+
+def threaded_input(*args, **kwargs):
+    # OS X doesn't multi-thread the OpenGL visualizer
+    # http://openrave.org/docs/0.8.2/_modules/openravepy/misc/#SetViewerUserThread
+    # https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/userData.py
+    # https://github.com/bulletphysics/bullet3/tree/master/examples/ExampleBrowser
+    #from pybullet_utils import bullet_client
+    #from pybullet_utils.bullet_client import BulletClient
+    #server = bullet_client.BulletClient(connection_mode=p.SHARED_MEMORY_SERVER) # GUI_SERVER
+    #sim_id = p.connect(p.GUI)
+    #print(dir(server))
+    #client = bullet_client.BulletClient(connection_mode=p.SHARED_MEMORY)
+    #sim_id = p.connect(p.SHARED_MEMORY)
+
+    #threading = __import__('threading')
+    import threading
+    data = []
+    thread = threading.Thread(target=lambda: data.append(user_input(*args, **kwargs)), args=[])
+    thread.start()
+    #threading.enumerate()
+    #thread_id = 0
+    #for tid, tobj in threading._active.items():
+    #    if tobj is thread:
+    #        thread_id = tid
+    #        break
+    try:
+        while thread.is_alive():
+            update_viewer()
+    finally:
+        thread.join()
+    return data[-1]
+
+def disconnect():
+    # TODO: change CLIENT?
+    if CLIENT in CLIENTS:
+        del CLIENTS[CLIENT]
+    with helper.HideOutput():
+        return p.disconnect(physicsClientId=CLIENT)
+
+def is_connected():
+    return p.getConnectionInfo(physicsClientId=CLIENT)['isConnected']
+
+def get_connection(client=None):
+    return p.getConnectionInfo(physicsClientId=get_client(client))['connectionMethod']
+
+def has_gui(client=None):
+    return get_connection(get_client(client)) == p.GUI
+
+def get_data_path():
+    import pybullet_data
+    return pybullet_data.getDataPath()
+
+def add_data_path(data_path=None):
+    if data_path is None:
+        data_path = get_data_path()
+    p.setAdditionalSearchPath(data_path)
+    return data_path
+
+GRAVITY = 9.8
+
+def enable_gravity():
+    p.setGravity(0, 0, -GRAVITY, physicsClientId=CLIENT)
+
+def disable_gravity():
+    p.setGravity(0, 0, 0, physicsClientId=CLIENT)
+
+def step_simulation():
+    p.stepSimulation(physicsClientId=CLIENT)
+
+def set_real_time(real_time):
+    p.setRealTimeSimulation(int(real_time), physicsClientId=CLIENT)
+
+def enable_real_time():
+    set_real_time(True)
+
+def disable_real_time():
+    set_real_time(False)
+
+def update_state():
+    # TODO: this doesn't seem to automatically update still
+    disable_gravity()
+    #step_simulation()
+    #for body in get_bodies():
+    #    for link in get_links(body):
+    #        # if set to 1 (or True), the Cartesian world position/orientation
+    #        # will be recomputed using forward kinematics.
+    #        get_link_state(body, link)
+    #for body in get_bodies():
+    #    get_pose(body)
+    #    for joint in get_joints(body):
+    #        get_joint_position(body, joint)
+    #p.getKeyboardEvents()
+    #p.getMouseEvents()
+
+def reset_simulation():
+    p.resetSimulation(physicsClientId=CLIENT)
+
+CameraInfo = namedtuple('CameraInfo', ['width', 'height', 'viewMatrix', 'projectionMatrix', 'cameraUp', 'cameraForward',
+                                       'horizontal', 'vertical', 'yaw', 'pitch', 'dist', 'target'])
+
+def get_camera():
+    return CameraInfo(*p.getDebugVisualizerCamera(physicsClientId=CLIENT))
+
+def set_camera(yaw, pitch, distance, target_position=np.zeros(3)):
+    p.resetDebugVisualizerCamera(distance, yaw, pitch, target_position, physicsClientId=CLIENT)
+
+def get_pitch(point):
+    dx, dy, dz = point
+    return np.math.atan2(dz, np.sqrt(dx ** 2 + dy ** 2))
+
+def get_yaw(point):
+    dx, dy, dz = point
+    return np.math.atan2(dy, dx)
+
+def set_camera_pose(camera_point, target_point=np.zeros(3)):
+    delta_point = np.array(target_point) - np.array(camera_point)
+    distance = np.linalg.norm(delta_point)
+    yaw = get_yaw(delta_point) - np.pi/2 # TODO: hack
+    pitch = get_pitch(delta_point)
+    p.resetDebugVisualizerCamera(distance, math.degrees(yaw), math.degrees(pitch),
+                                 target_point, physicsClientId=CLIENT)
+
+def set_camera_pose2(world_from_camera, distance=2):
+    target_camera = np.array([0, 0, distance])
+    target_world = geometry.tform_point(world_from_camera, target_camera)
+    camera_world = geometry.point_from_pose(world_from_camera)
+    set_camera_pose(camera_world, target_world)
+    #roll, pitch, yaw = euler_from_quat(quat_from_pose(world_from_camera))
+    # TODO: assert that roll is about zero?
+    #p.resetDebugVisualizerCamera(cameraDistance=distance, cameraYaw=math.degrees(yaw), cameraPitch=math.degrees(-pitch),
+    #                             cameraTargetPosition=target_world, physicsClientId=CLIENT)
+
+CameraImage = namedtuple('CameraImage', ['rgbPixels', 'depthPixels', 'segmentationMaskBuffer'])
+
+def demask_pixel(pixel):
+    # https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/segmask_linkindex.py
+    # Not needed when p.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX is not enabled
+    #if 0 <= pixel:
+    #    return None
+    # Returns a large value when undefined
+    body = pixel & ((1 << 24) - 1)
+    link = (pixel >> 24) - 1
+    return body, link
+
+def save_image(filename, rgba):
+    import scipy.misc
+    if filename.endswith('.jpg'):
+        scipy.misc.imsave(filename, rgba[:, :, :3])
+    elif filename.endswith('.png'):
+        scipy.misc.imsave(filename, rgba)  # (480, 640, 4)
+        # scipy.misc.toimage(image_array, cmin=0.0, cmax=...).save('outfile.jpg')
+    else:
+        raise ValueError(filename)
+    print('Saved image at {}'.format(filename))
+
+def get_projection_matrix(width, height, vertical_fov, near, far):
+    """
+    OpenGL projection matrix
+    :param width: 
+    :param height: 
+    :param vertical_fov: vertical field of view in radians
+    :param near: 
+    :param far: 
+    :return: 
+    """
+    # http://www.songho.ca/opengl/gl_projectionmatrix.html
+    # http://www.songho.ca/opengl/gl_transform.html#matrix
+    # https://www.edmundoptics.fr/resources/application-notes/imaging/understanding-focal-length-and-field-of-view/
+    # gluPerspective() requires only 4 parameters; vertical field of view (FOV),
+    # the aspect ratio of width to height and the distances to near and far clipping planes.
+    aspect = float(width) / height
+    fov_degrees = math.degrees(vertical_fov)
+    projection_matrix = p.computeProjectionMatrixFOV(fov=fov_degrees, aspect=aspect,
+                                                     nearVal=near, farVal=far, physicsClientId=CLIENT)
+    # projection_matrix = p.computeProjectionMatrix(0, width, height, 0, near, far, physicsClientId=CLIENT)
+    return projection_matrix
+    #return np.reshape(projection_matrix, [4, 4])
+
+RED = (1, 0, 0, 1)
+GREEN = (0, 1, 0, 1)
+BLUE = (0, 0, 1, 1)
+BLACK = (0, 0, 0, 1)
+WHITE = (1, 1, 1, 1)
+BROWN = (0.396, 0.263, 0.129, 1)
+TAN = (0.824, 0.706, 0.549, 1)
+GREY = (0.5, 0.5, 0.5, 1)
+YELLOW = (1, 1, 0, 1)
+
+COLOR_FROM_NAME = {
+    'red': RED,
+    'green': GREEN,
+    'blue': BLUE,
+    'white': WHITE,
+    'grey': GREY,
+    'black': BLACK,
+}
+
+def apply_alpha(color, alpha=1.0):
+    return tuple(color[:3]) + (alpha,)
+
+def spaced_colors(n, s=1, v=1):
+    return [colorsys.hsv_to_rgb(h, s, v) for h in np.linspace(0, 1, n, endpoint=False)]
+
+def image_from_segmented(segmented, color_from_body=None):
+    if color_from_body is None:
+        bodies = get_bodies()
+        color_from_body = dict(zip(bodies, spaced_colors(len(bodies))))
+    image = np.zeros(segmented.shape[:2] + (3,))
+    for r in range(segmented.shape[0]):
+        for c in range(segmented.shape[1]):
+            body, link = segmented[r, c, :]
+            image[r, c, :] = color_from_body.get(body, (0, 0, 0))
+    return image
+
+def get_image(camera_pos, target_pos, width=640, height=480, vertical_fov=60.0, near=0.02, far=5.0,
+              segment=False, segment_links=False):
+    # computeViewMatrixFromYawPitchRoll
+    view_matrix = p.computeViewMatrix(cameraEyePosition=camera_pos, cameraTargetPosition=target_pos,
+                                      cameraUpVector=[0, 0, 1], physicsClientId=CLIENT)
+    projection_matrix = get_projection_matrix(width, height, vertical_fov, near, far)
+    if segment:
+        if segment_links:
+            flags = p.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX
+        else:
+            flags = 0
+    else:
+        flags = p.ER_NO_SEGMENTATION_MASK
+    image = CameraImage(*p.getCameraImage(width, height, viewMatrix=view_matrix,
+                                          projectionMatrix=projection_matrix,
+                                          shadow=False,
+                                          flags=flags,
+                                          renderer=p.ER_TINY_RENDERER, # p.ER_BULLET_HARDWARE_OPENGL
+                                          physicsClientId=CLIENT)[2:])
+    depth = far * near / (far - (far - near) * image.depthPixels)
+    # https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/pointCloudFromCameraImage.py
+    # https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/getCameraImageTest.py
+    segmented = None
+    if segment:
+        segmented = np.zeros(image.segmentationMaskBuffer.shape + (2,))
+        for r in range(segmented.shape[0]):
+            for c in range(segmented.shape[1]):
+                pixel = image.segmentationMaskBuffer[r, c]
+                segmented[r, c, :] = demask_pixel(pixel)
+    return CameraImage(image.rgbPixels, depth, segmented)
+
+def set_default_camera():
+    set_camera(160, -35, 2.5, geometry.Point())
+
+def save_state():
+    return p.saveState(physicsClientId=CLIENT)
+
+def restore_state(state_id):
+    p.restoreState(stateId=state_id, physicsClientId=CLIENT)
+
+def save_bullet(filename):
+    p.saveBullet(filename, physicsClientId=CLIENT)
+
+def restore_bullet(filename):
+    p.restoreState(fileName=filename, physicsClientId=CLIENT)
+
+#####################################
+
+#XXX move to geometry
+# Geometry
+
+def tform_from_pose(pose):
+    (point, quat) = pose
+    tform = np.eye(4)
+    tform[:3, 3] = point
+    tform[:3, :3] = matrix_from_quat(quat)
+    return tform
+
+def matrix_from_quat(quat):
+    return np.array(p.getMatrixFromQuaternion(quat, physicsClientId=CLIENT)).reshape(3, 3)
+
+def pose_from_pose2d(pose2d):
+    x, y, theta = pose2d
+    return geometry.Pose(geometry.Point(x=x, y=y), geometry.Euler(yaw=theta))
+
+#####################################
+
+# Bodies, Joints, Links
+#XXX new way to bodies?
+
+def get_bodies():
+    return [p.getBodyUniqueId(i, physicsClientId=CLIENT)
+            for i in range(p.getNumBodies(physicsClientId=CLIENT))]
+
+def has_body(name):
+    try:
+        body_from_name(name)
+    except ValueError:
+        return False
+    return True
+
+def body_from_name(name):
+    for body in get_bodies():
+        if body.get_body_name() == name:
+            return body
+    raise ValueError(name)
+
+def dump_world():
+    for body in get_bodies():
+        body.dump_body()
+        print()
+
+def set_all_static():
+    # TODO: mass saver
+    disable_gravity()
+    for body in get_bodies():
+        body.set_static()
+
+#####################################
+
+# Shapes
+
+SHAPE_TYPES = {
+    p.GEOM_SPHERE: 'sphere', # 2
+    p.GEOM_BOX: 'box', # 3
+    p.GEOM_CYLINDER: 'cylinder', # 4
+    p.GEOM_MESH: 'mesh', # 5
+    p.GEOM_PLANE: 'plane',  # 6
+    p.GEOM_CAPSULE: 'capsule',  # 7
+    # p.GEOM_FORCE_CONCAVE_TRIMESH
+}
+
+# TODO: clean this up to avoid repeated work
+
+def get_box_geometry(width, length, height):
+    return {
+        'shapeType': p.GEOM_BOX,
+        'halfExtents': [width/2., length/2., height/2.]
+    }
+
+def get_cylinder_geometry(radius, height):
+    return {
+        'shapeType': p.GEOM_CYLINDER,
+        'radius': radius,
+        'length': height,
+    }
+
+def get_sphere_geometry(radius):
+    return {
+        'shapeType': p.GEOM_SPHERE,
+        'radius': radius,
+    }
+
+def get_capsule_geometry(radius, height):
+    return {
+        'shapeType': p.GEOM_CAPSULE,
+        'radius': radius,
+        'length': height,
+    }
+
+def get_plane_geometry(normal):
+    return {
+        'shapeType': p.GEOM_PLANE,
+        'planeNormal': normal,
+    }
+
+def get_mesh_geometry(path, scale=1.):
+    return {
+        'shapeType': p.GEOM_MESH,
+        'fileName': path,
+        'meshScale': scale*np.ones(3),
+    }
+
+NULL_ID = -1
+
+def create_collision_shape(geom, pose=geometry.unit_pose()):
+    point, quat = pose
+    collision_args = {
+        'collisionFramePosition': point,
+        'collisionFrameOrientation': quat,
+        'physicsClientId': CLIENT,
+    }
+    collision_args.update(geom)
+    if 'length' in collision_args:
+        # TODO: pybullet bug visual => length, collision => height
+        collision_args['height'] = collision_args['length']
+        del collision_args['length']
+    return p.createCollisionShape(**collision_args)
+
+def create_visual_shape(geom, pose=geometry.unit_pose(), color=(1, 0, 0, 1), specular=None):
+    if (color is None): # or not has_gui():
+        return NULL_ID
+    point, quat = pose
+    visual_args = {
+        'rgbaColor': color,
+        'visualFramePosition': point,
+        'visualFrameOrientation': quat,
+        'physicsClientId': CLIENT,
+    }
+    visual_args.update(geom)
+    if specular is not None:
+        visual_args['specularColor'] = specular
+    return p.createVisualShape(**visual_args)
+
+def create_shape(geom, pose=geometry.unit_pose(), collision=True, **kwargs):
+    collision_id = create_collision_shape(geom, pose=pose) if collision else NULL_ID
+    visual_id = create_visual_shape(geom, pose=pose, **kwargs)
+    return collision_id, visual_id
+
+def plural(word):
+    exceptions = {'radius': 'radii'}
+    if word in exceptions:
+        return exceptions[word]
+    if word.endswith('s'):
+        return word
+    return word + 's'
+
+def create_shape_array(geoms, poses, colors=None):
+    # https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/pybullet.c
+    # createCollisionShape: height
+    # createVisualShape: length
+    # createCollisionShapeArray: lengths
+    # createVisualShapeArray: lengths
+    mega_geom = defaultdict(list)
+    for geom in geoms:
+        extended_geom = get_default_geometry()
+        extended_geom.update(geom)
+        #extended_geom = geom.copy()
+        for key, value in extended_geom.items():
+            mega_geom[plural(key)].append(value)
+
+    collision_args = mega_geom.copy()
+    for (point, quat) in poses:
+        collision_args['collisionFramePositions'].append(point)
+        collision_args['collisionFrameOrientations'].append(quat)
+    collision_id = p.createCollisionShapeArray(physicsClientId=CLIENT, **collision_args)
+    if (colors is None): # or not has_gui():
+        return collision_id, NULL_ID
+
+    visual_args = mega_geom.copy()
+    for (point, quat), color in zip(poses, colors):
+        # TODO: color doesn't seem to work correctly here
+        visual_args['rgbaColors'].append(color)
+        visual_args['visualFramePositions'].append(point)
+        visual_args['visualFrameOrientations'].append(quat)
+    visual_id = p.createVisualShapeArray(physicsClientId=CLIENT, **visual_args)
+    return collision_id, visual_id
+
+#####################################
+
+def create_body(collision_id=-1, visual_id=-1, mass=STATIC_MASS):
+    return p.createMultiBody(baseMass=mass, baseCollisionShapeIndex=collision_id,
+                             baseVisualShapeIndex=visual_id, physicsClientId=CLIENT)
+
+def create_box(w, l, h, mass=STATIC_MASS, color=(1, 0, 0, 1)):
+    collision_id, visual_id = create_shape(get_box_geometry(w, l, h), color=color)
+    return create_body(collision_id, visual_id, mass=mass)
+    # basePosition | baseOrientation
+    # linkCollisionShapeIndices | linkVisualShapeIndices
+
+def create_cylinder(radius, height, mass=STATIC_MASS, color=(0, 0, 1, 1)):
+    collision_id, visual_id = create_shape(get_cylinder_geometry(radius, height), color=color)
+    return create_body(collision_id, visual_id, mass=mass)
+
+def create_capsule(radius, height, mass=STATIC_MASS, color=(0, 0, 1, 1)):
+    collision_id, visual_id = create_shape(get_capsule_geometry(radius, height), color=color)
+    return create_body(collision_id, visual_id, mass=mass)
+
+def create_sphere(radius, mass=STATIC_MASS, color=(0, 0, 1, 1)):
+    collision_id, visual_id = create_shape(get_sphere_geometry(radius), color=color)
+    return create_body(collision_id, visual_id, mass=mass)
+
+def create_plane(normal=[0, 0, 1], mass=STATIC_MASS, color=(0, 0, 0, 1)):
+    # color seems to be ignored in favor of a texture
+    collision_id, visual_id = create_shape(get_plane_geometry(normal), color=color)
+    return create_body(collision_id, visual_id, mass=mass)
+
+def create_obj(path, scale=1., mass=STATIC_MASS, collision=True, color=(0.5, 0.5, 0.5, 1)):
+    collision_id, visual_id = create_shape(get_mesh_geometry(path, scale=scale), collision=collision, color=color)
+    body = create_body(collision_id, visual_id, mass=mass)
+    fixed_base = (mass == STATIC_MASS)
+    INFO_FROM_BODY[CLIENT, body] = ModelInfo(None, path, fixed_base, scale) # TODO: store geometry info instead?
+    return body
+
+
+Mesh = namedtuple('Mesh', ['vertices', 'faces'])
+mesh_count = count()
+TEMP_DIR = 'temp/'
+
+def create_mesh(mesh, under=True, **kwargs):
+    # http://people.sc.fsu.edu/~jburkardt/data/obj/obj.html
+    # TODO: read OFF / WRL / OBJ files
+    # TODO: maintain dict to file
+    helper.ensure_dir(TEMP_DIR)
+    path = os.path.join(TEMP_DIR, 'mesh{}.obj'.format(next(mesh_count)))
+    helper.write(path, obj_file_from_mesh(mesh, under=under))
+    return create_obj(path, **kwargs)
+    #safe_remove(path) # TODO: removing might delete mesh?
+
+#####################################
+
+VisualShapeData = namedtuple('VisualShapeData', ['objectUniqueId', 'linkIndex',
+                                                 'visualGeometryType', 'dimensions', 'meshAssetFileName',
+                                                 'localVisualFrame_position', 'localVisualFrame_orientation',
+                                                 'rgbaColor']) # 'textureUniqueId'
+
+UNKNOWN_FILE = 'unknown_file'
+
+def visual_shape_from_data(data, client=None):
+    client = get_client(client)
+    if (data.visualGeometryType == p.GEOM_MESH) and (data.meshAssetFileName == UNKNOWN_FILE):
+        return -1
+    # visualFramePosition: translational offset of the visual shape with respect to the link
+    # visualFrameOrientation: rotational offset (quaternion x,y,z,w) of the visual shape with respect to the link frame
+    #inertial_pose = get_joint_inertial_pose(data.objectUniqueId, data.linkIndex)
+    #point, quat = geometry.multiply(geometry.invert(inertial_pose), pose)
+    point, quat = get_data_pose(data)
+    return p.createVisualShape(shapeType=data.visualGeometryType,
+                               radius=get_data_radius(data),
+                               halfExtents=np.array(get_data_extents(data))/2,
+                               length=get_data_height(data), # TODO: pybullet bug
+                               fileName=data.meshAssetFileName,
+                               meshScale=get_data_scale(data),
+                               planeNormal=get_data_normal(data),
+                               rgbaColor=data.rgbaColor,
+                               #specularColor=,
+                               visualFramePosition=point,
+                               visualFrameOrientation=quat,
+                               physicsClientId=client)
+
+def get_visual_data(body, link=BASE_LINK):
+    visual_data = [VisualShapeData(*tup) for tup in p.getVisualShapeData(body, physicsClientId=CLIENT)]
+    return list(filter(lambda d: d.linkIndex == link, visual_data))
+
+# object_unique_id and linkIndex seem to be noise
+CollisionShapeData = namedtuple('CollisionShapeData', ['object_unique_id', 'linkIndex',
+                                                       'geometry_type', 'dimensions', 'filename',
+                                                       'local_frame_pos', 'local_frame_orn'])
+
+def collision_shape_from_data(data, body, link, client=None):
+    client = get_client(client)
+    if (data.geometry_type == p.GEOM_MESH) and (data.filename == UNKNOWN_FILE):
+        return -1
+    pose = geometry.multiply(link.get_joint_inertial_pose(), get_data_pose(data))
+    point, quat = pose
+    # TODO: the visual data seems affected by the collision data
+    return p.createCollisionShape(shapeType=data.geometry_type,
+                                  radius=get_data_radius(data),
+                                  # halfExtents=get_data_extents(data.geometry_type, data.dimensions),
+                                  halfExtents=np.array(get_data_extents(data)) / 2,
+                                  height=get_data_height(data),
+                                  fileName=data.filename.decode(encoding='UTF-8'),
+                                  meshScale=get_data_scale(data),
+                                  planeNormal=get_data_normal(data),
+                                  flags=p.GEOM_FORCE_CONCAVE_TRIMESH,
+                                  collisionFramePosition=point,
+                                  collisionFrameOrientation=quat,
+                                  physicsClientId=client)
+    #return p.createCollisionShapeArray()
+
+#XXX Make a separate file called cloning.py
+
+def clone_visual_shape(body, link, client=None):
+    client = get_client(client)
+    #if not has_gui(client):
+    #    return -1
+    visual_data = get_visual_data(body, link)
+    if not visual_data:
+        return -1
+    assert (len(visual_data) == 1)
+    return visual_shape_from_data(visual_data[0], client)
+
+def clone_collision_shape(body, link, client=None):
+    client = get_client(client)
+    collision_data = get_collision_data(body, link)
+    if not collision_data:
+        return -1
+    assert (len(collision_data) == 1)
+    # TODO: can do CollisionArray
+    return collision_shape_from_data(collision_data[0], body, link, client)
+
+def clone_body(body, links=None, collision=True, visual=True, client=None):
+    # TODO: names are not retained
+    # TODO: error with createMultiBody link poses on PR2
+    # localVisualFrame_position: position of local visual frame, relative to link/joint frame
+    # localVisualFrame orientation: orientation of local visual frame relative to link/joint frame
+    # parentFramePos: joint position in parent frame
+    # parentFrameOrn: joint orientation in parent frame
+    client = get_client(client) # client is the new client for the body
+    if links is None:
+        links = body.get_links()
+    #movable_joints = [joint for joint in links if is_movable(body, joint)]
+    new_from_original = {}
+    base_link = (links[0]).get_link_parent() if links else BASE_LINK
+    new_from_original[base_link] = -1
+
+    masses = []
+    collision_shapes = []
+    visual_shapes = []
+    positions = [] # list of local link positions, with respect to parent
+    orientations = [] # list of local link orientations, w.r.t. parent
+    inertial_positions = [] # list of local inertial frame pos. in link frame
+    inertial_orientations = [] # list of local inertial frame orn. in link frame
+    parent_indices = []
+    joint_types = []
+    joint_axes = []
+    for i, link in enumerate(links):
+        new_from_original[link] = i
+        joint_info = link.get_joint_info() 
+        dynamics_info = link.get_dynamics_info()
+        masses.append(dynamics_info.mass)
+        collision_shapes.append(clone_collision_shape(body, link, client) if collision else -1)
+        visual_shapes.append(clone_visual_shape(body, link, client) if visual else -1)
+        point, quat = link.get_local_link_pose()
+        positions.append(point)
+        orientations.append(quat)
+        inertial_positions.append(dynamics_info.local_inertial_pos)
+        inertial_orientations.append(dynamics_info.local_inertial_orn)
+        parent_indices.append(new_from_original[joint_info.parentIndex] + 1) # TODO: need the increment to work
+        joint_types.append(joint_info.jointType)
+        joint_axes.append(joint_info.jointAxis)
+    # https://github.com/bulletphysics/bullet3/blob/9c9ac6cba8118544808889664326fd6f06d9eeba/examples/pybullet/gym/pybullet_utils/urdfEditor.py#L169
+
+    base_dynamics_info = base_link.get_dynamics_info()
+    base_point, base_quat = base_link.get_link_pose()
+    new_body = p.createMultiBody(baseMass=base_dynamics_info.mass,
+                                 baseCollisionShapeIndex=clone_collision_shape(body, base_link, client) if collision else -1,
+                                 baseVisualShapeIndex=clone_visual_shape(body, base_link, client) if visual else -1,
+                                 basePosition=base_point,
+                                 baseOrientation=base_quat,
+                                 baseInertialFramePosition=base_dynamics_info.local_inertial_pos,
+                                 baseInertialFrameOrientation=base_dynamics_info.local_inertial_orn,
+                                 linkMasses=masses,
+                                 linkCollisionShapeIndices=collision_shapes,
+                                 linkVisualShapeIndices=visual_shapes,
+                                 linkPositions=positions,
+                                 linkOrientations=orientations,
+                                 linkInertialFramePositions=inertial_positions,
+                                 linkInertialFrameOrientations=inertial_orientations,
+                                 linkParentIndices=parent_indices,
+                                 linkJointTypes=joint_types,
+                                 linkJointAxis=joint_axes,
+                                 physicsClientId=client)
+    #set_configuration(new_body, get_joint_positions(body, movable_joints)) # Need to use correct client
+    for joint, value in zip(range(len(links)), body.get_joint_positions(links)):
+        # TODO: check if movable?
+        p.resetJointState(new_body, joint, value, targetVelocity=0, physicsClientId=client)
+    return new_body
+
+def clone_world(client=None, exclude=[]):
+    visual = has_gui(client)
+    mapping = {}
+    for body in get_bodies():
+        if body not in exclude:
+            new_body = clone_body(body, collision=True, visual=visual, client=client)
+            mapping[body] = new_body
+    return mapping
+
+#####################################
+
+def get_collision_data(body, link=BASE_LINK):
+    # TODO: try catch
+    return [CollisionShapeData(*tup) for tup in p.getCollisionShapeData(body, link, physicsClientId=CLIENT)]
+
+def get_data_type(data):
+    return data.geometry_type if isinstance(data, CollisionShapeData) else data.visualGeometryType
+
+def get_data_filename(data):
+    return (data.filename if isinstance(data, CollisionShapeData)
+            else data.meshAssetFileName).decode(encoding='UTF-8')
+
+def get_data_pose(data):
+    if isinstance(data, CollisionShapeData):
+        return (data.local_frame_pos, data.local_frame_orn)
+    return (data.localVisualFrame_position, data.localVisualFrame_orientation)
+
+def get_default_geometry():
+    return {
+        'halfExtents': DEFAULT_EXTENTS,
+        'radius': DEFAULT_RADIUS,
+        'length': DEFAULT_HEIGHT, # 'height'
+        'fileName': DEFAULT_MESH,
+        'meshScale': DEFAULT_SCALE,
+        'planeNormal': DEFAULT_NORMAL,
+    }
+
+DEFAULT_MESH = ''
+
+DEFAULT_EXTENTS = [1, 1, 1]
+
+def get_data_extents(data):
+    """
+    depends on geometry type:
+    for GEOM_BOX: extents,
+    for GEOM_SPHERE dimensions[0] = radius,
+    for GEOM_CAPSULE and GEOM_CYLINDER, dimensions[0] = height (length), dimensions[1] = radius.
+    For GEOM_MESH, dimensions is the scaling factor.
+    :return:
+    """
+    geometry_type = get_data_type(data)
+    dimensions = data.dimensions
+    if geometry_type == p.GEOM_BOX:
+        return dimensions
+    return DEFAULT_EXTENTS
+
+DEFAULT_RADIUS = 0.5
+
+def get_data_radius(data):
+    geometry_type = get_data_type(data)
+    dimensions = data.dimensions
+    if geometry_type == p.GEOM_SPHERE:
+        return dimensions[0]
+    if geometry_type in (p.GEOM_CYLINDER, p.GEOM_CAPSULE):
+        return dimensions[1]
+    return DEFAULT_RADIUS
+
+DEFAULT_HEIGHT = 1
+
+def get_data_height(data):
+    geometry_type = get_data_type(data)
+    dimensions = data.dimensions
+    if geometry_type in (p.GEOM_CYLINDER, p.GEOM_CAPSULE):
+        return dimensions[0]
+    return DEFAULT_HEIGHT
+
+DEFAULT_SCALE = [1, 1, 1]
+
+def get_data_scale(data):
+    geometry_type = get_data_type(data)
+    dimensions = data.dimensions
+    if geometry_type == p.GEOM_MESH:
+        return dimensions
+    return DEFAULT_SCALE
+
+DEFAULT_NORMAL = [0, 0, 1]
+
+def get_data_normal(data):
+    geometry_type = get_data_type(data)
+    dimensions = data.dimensions
+    if geometry_type == p.GEOM_PLANE:
+        return dimensions
+    return DEFAULT_NORMAL
+
+def get_data_geometry(data):
+    geometry_type = get_data_type(data)
+    if geometry_type == p.GEOM_SPHERE:
+        parameters = [get_data_radius(data)]
+    elif geometry_type == p.GEOM_BOX:
+        parameters = [get_data_extents(data)]
+    elif geometry_type in (p.GEOM_CYLINDER, p.GEOM_CAPSULE):
+        parameters = [get_data_height(data), get_data_radius(data)]
+    elif geometry_type == p.GEOM_MESH:
+        parameters = [get_data_filename(data), get_data_scale(data)]
+    elif geometry_type == p.GEOM_PLANE:
+        parameters = [get_data_extents(data)]
+    else:
+        raise ValueError(geometry_type)
+    return SHAPE_TYPES[geometry_type], parameters
+
+def set_color(body, color, link=BASE_LINK, shape_index=-1):
+    """
+    Experimental for internal use, recommended ignore shapeIndex or leave it -1.
+    Intention was to let you pick a specific shape index to modify,
+    since URDF (and SDF etc) can have more than 1 visual shape per link.
+    This shapeIndex matches the list ordering returned by getVisualShapeData.
+    :param body:
+    :param link:
+    :param shape_index:
+    :return:
+    """
+    # specularColor
+    return p.changeVisualShape(body, link, shapeIndex=shape_index, rgbaColor=color,
+                               #textureUniqueId=None, specularColor=None,
+                               physicsClientId=CLIENT)
+
+#####################################
+#XXX create aabb.py
+
+# Bounding box
+
+AABB = namedtuple('AABB', ['lower', 'upper'])
+
+def aabb_from_points(points):
+    return AABB(np.min(points, axis=0), np.max(points, axis=0))
+
+def aabb_union(aabbs):
+    return aabb_from_points(np.vstack([aabb for aabb in aabbs]))
+
+def aabb_overlap(aabb1, aabb2):
+    lower1, upper1 = aabb1
+    lower2, upper2 = aabb2
+    return np.less_equal(lower1, upper2).all() and \
+           np.less_equal(lower2, upper1).all()
+
+def get_subtree_aabb(body, root_link=BASE_LINK):
+    return aabb_union(get_aabb(body, link) for link in root_link.get_link_subtree())
+
+def get_aabbs(body):
+    return [get_aabb(body, link=link) for link in body.all_links]
+
+def get_aabb(body, link=None):
+    # Note that the query is conservative and may return additional objects that don't have actual AABB overlap.
+    # This happens because the acceleration structures have some heuristic that enlarges the AABBs a bit
+    # (extra margin and extruded along the velocity vector).
+    # Contact points with distance exceeding this threshold are not processed by the LCP solver.
+    # AABBs are extended by this number. Defaults to 0.02 in Bullet 2.x
+    #p.setPhysicsEngineParameter(contactBreakingThreshold=0.0, physicsClientId=CLIENT)
+    if link is None:
+        aabb = aabb_union(get_aabbs(body))
+    else:
+        aabb = p.getAABB(body.id, linkIndex=link.linkID, physicsClientId=CLIENT)
+    return aabb
+
+get_lower_upper = get_aabb
+
+def get_aabb_center(aabb):
+    lower, upper = aabb
+    return (np.array(lower) + np.array(upper)) / 2.
+
+def get_aabb_extent(aabb):
+    lower, upper = aabb
+    return np.array(upper) - np.array(lower)
+
+def get_center_extent(body, **kwargs):
+    aabb = get_aabb(body, **kwargs)
+    return get_aabb_center(aabb), get_aabb_extent(aabb)
+
+def aabb2d_from_aabb(aabb):
+    (lower, upper) = aabb
+    return lower[:2], upper[:2]
+
+def aabb_contains_aabb(contained, container):
+    lower1, upper1 = contained
+    lower2, upper2 = container
+    return np.less_equal(lower2, lower1).all() and \
+           np.less_equal(upper1, upper2).all()
+    #return np.all(lower2 <= lower1) and np.all(upper1 <= upper2)
+
+def aabb_contains_point(point, container):
+    lower, upper = container
+    return np.less_equal(lower, point).all() and \
+           np.less_equal(point, upper).all()
+    #return np.all(lower <= point) and np.all(point <= upper)
+
+def get_bodies_in_region(aabb):
+    (lower, upper) = aabb
+    return p.getOverlappingObjects(lower, upper, physicsClientId=CLIENT)
+
+def get_aabb_volume(aabb):
+    return np.prod(get_aabb_extent(aabb))
+
+def get_aabb_area(aabb):
+    return np.prod(get_aabb_extent(aabb2d_from_aabb(aabb)))
+
+#####################################
+
+# AABB approximation
+
+def vertices_from_data(data):
+    geometry_type = get_data_type(data)
+    #if geometry_type == p.GEOM_SPHERE:
+    #    parameters = [get_data_radius(data)]
+    if geometry_type == p.GEOM_BOX:
+        extents = np.array(get_data_extents(data))
+        aabb = AABB(-extents/2., +extents/2.)
+        vertices = get_aabb_vertices(aabb)
+    elif geometry_type in (p.GEOM_CYLINDER, p.GEOM_CAPSULE):
+        # TODO: p.URDF_USE_IMPLICIT_CYLINDER
+        radius, height = get_data_radius(data), get_data_height(data)
+        extents = np.array([2*radius, 2*radius, height])
+        aabb = AABB(-extents/2., +extents/2.)
+        vertices = get_aabb_vertices(aabb)
+    elif geometry_type == p.GEOM_SPHERE:
+        radius = get_data_radius(data)
+        half_extents = radius*np.ones(3)
+        aabb = AABB(-half_extents, +half_extents)
+        vertices = get_aabb_vertices(aabb)
+    elif geometry_type == p.GEOM_MESH:
+        filename, scale = get_data_filename(data), get_data_scale(data)
+        if filename == UNKNOWN_FILE:
+            raise RuntimeError(filename)
+        mesh = read_obj(filename, decompose=False)
+        vertices = [scale*np.array(vertex) for vertex in mesh.vertices]
+        # TODO: could compute AABB here for improved speed at the cost of being conservative
+    #elif geometry_type == p.GEOM_PLANE:
+    #   parameters = [get_data_extents(data)]
+    else:
+        raise NotImplementedError(geometry_type)
+    return geometry.apply_affine(get_data_pose(data), vertices)
+
+def vertices_from_link(body, link):
+    # In local frame
+    vertices = []
+    # TODO: requires the viewer to be active
+    #for data in get_visual_data(body, link):
+    #    vertices.extend(vertices_from_data(data))
+    # Pybullet creates multiple collision elements (with unknown_file) when noncovex
+    for data in get_collision_data(body, link):
+        vertices.extend(vertices_from_data(data))
+    return vertices
+
+OBJ_MESH_CACHE = {}
+
+def vertices_from_rigid(body, link=BASE_LINK):
+    assert helper.implies(link == BASE_LINK, body.get_num_links() == 0)
+    try:
+        vertices = vertices_from_link(body, link)
+    except RuntimeError:
+        info = get_model_info(body)
+        assert info is not None
+        _, ext = os.path.splitext(info.path)
+        if ext == '.obj':
+            if info.path not in OBJ_MESH_CACHE:
+                OBJ_MESH_CACHE[info.path] = read_obj(info.path, decompose=False)
+            mesh = OBJ_MESH_CACHE[info.path]
+            vertices = mesh.vertices
+        else:
+            raise NotImplementedError(ext)
+    return vertices
+
+def approximate_as_prism(body, body_pose=geometry.unit_pose(), **kwargs):
+    # TODO: make it just orientation
+    vertices = geometry.apply_affine(body_pose, vertices_from_rigid(body, **kwargs))
+    aabb = aabb_from_points(vertices)
+    return get_aabb_center(aabb), get_aabb_extent(aabb)
+    #with PoseSaver(body):
+    #    set_pose(body, body_pose)
+    #    set_velocity(body, linear=np.zeros(3), angular=np.zeros(3))
+    #    return get_center_extent(body, **kwargs)
+
+def approximate_as_cylinder(body, **kwargs):
+    center, (width, length, height) = approximate_as_prism(body, **kwargs)
+    diameter = (width + length) / 2  # TODO: check that these are close
+    return center, (diameter, height)
+
+#####################################
+
+# Collision
+
+#MAX_DISTANCE = 1e-3
+MAX_DISTANCE = 0.
+
+def contact_collision():
+    step_simulation()
+    return len(p.getContactPoints(physicsClientId=CLIENT)) != 0
+
+ContactResult = namedtuple('ContactResult', ['contactFlag', 'bodyUniqueIdA', 'bodyUniqueIdB',
+                                             'linkIndexA', 'linkIndexB', 'positionOnA', 'positionOnB',
+                                             'contactNormalOnB', 'contactDistance', 'normalForce'])
+
+def pairwise_link_collision(body1, link1, body2, link2=BASE_LINK, max_distance=MAX_DISTANCE): # 10000
+    return len(p.getClosestPoints(bodyA=body1, bodyB=body2, distance=max_distance,
+                                  linkIndexA=link1, linkIndexB=link2,
+                                  physicsClientId=CLIENT)) != 0 # getContactPoints
+
+def flatten_links(body, links=None):
+    if links is None:
+        links = body.get_all_links()
+    return {(body, frozenset([link])) for link in links}
+
+def expand_links(body):
+    body, links = body if isinstance(body, tuple) else (body, None)
+    if links is None:
+        links = body.get_all_links()
+    return body, links
+
+def any_link_pair_collision(body1, links1, body2, links2=None, **kwargs):
+    # TODO: this likely isn't needed anymore
+    if links1 is None:
+        links1 = body1.get_all_links()
+    if links2 is None:
+        links2 = body2.get_all_links()
+    for link1, link2 in product(links1, links2):
+        if (body1 == body2) and (link1 == link2):
+            continue
+        if pairwise_link_collision(body1, link1, body2, link2, **kwargs):
+            return True
+    return False
+
+def body_collision(body1, body2, max_distance=MAX_DISTANCE): # 10000
+    # TODO: confirm that this doesn't just check the base link
+    return len(p.getClosestPoints(bodyA=body1, bodyB=body2, distance=max_distance,
+                                  physicsClientId=CLIENT)) != 0 # getContactPoints`
+
+def pairwise_collision(body1, body2, **kwargs):
+    if isinstance(body1, tuple) or isinstance(body2, tuple):
+        body1, links1 = expand_links(body1)
+        body2, links2 = expand_links(body2)
+        return any_link_pair_collision(body1, links1, body2, links2, **kwargs)
+    return body_collision(body1, body2, **kwargs)
+
+#def single_collision(body, max_distance=1e-3):
+#    return len(p.getClosestPoints(body, max_distance=max_distance)) != 0
+
+def single_collision(body1, **kwargs):
+    for body2 in get_bodies():
+        if (body1 != body2) and pairwise_collision(body1, body2, **kwargs):
+            return True
+    return False
+
+def link_pairs_collision(body1, links1, body2, links2=None, **kwargs):
+    if links2 is None:
+        links2 = body2.get_all_links()
+    for link1, link2 in product(links1, links2):
+        if (body1 == body2) and (link1 == link2):
+            continue
+        if pairwise_link_collision(body1, link1, body2, link2, **kwargs):
+            return True
+    return False
+
+#####################################
+
+Ray = namedtuple('Ray', ['start', 'end'])
+
+def get_ray(ray):
+    start, end = ray
+    return np.array(end) - np.array(start)
+
+RayResult = namedtuple('RayResult', ['objectUniqueId', 'linkIndex',
+                                     'hit_fraction', 'hit_position', 'hit_normal'])
+
+def ray_collision(ray):
+    # TODO: be careful to disable gravity and set static masses for everything
+    step_simulation() # Needed for some reason
+    start, end = ray
+    result, = p.rayTest(start, end, physicsClientId=CLIENT)
+    # TODO: assign hit_position to be the end?
+    return RayResult(*result)
+
+def batch_ray_collision(rays, threads=1):
+    assert 1 <= threads <= p.MAX_RAY_INTERSECTION_BATCH_SIZE
+    if not rays:
+        return []
+    step_simulation() # Needed for some reason
+    ray_starts = [start for start, _ in rays]
+    ray_ends = [end for _, end in rays]
+    return [RayResult(*tup) for tup in p.rayTestBatch(
+        ray_starts, ray_ends,
+        numThreads=threads,
+        #parentObjectUniqueId=
+        #parentLinkIndex=
+        physicsClientId=CLIENT)]
+
+#####################################
+
+# Joint motion planning
+
+#XXX create motionPlanning.py for now..
+
+def uniform_generator(d):
+    while True:
+        yield np.random.uniform(size=d)
+
+def halton_generator(d):
+    import ghalton
+    # sequencer = ghalton.Halton(d)
+    sequencer = ghalton.GeneralizedHalton(d, random.randint(0, 1000))
+    while True:
+        yield sequencer.get(1)[0]
+
+def unit_generator(d, use_halton=False):
+    return halton_generator(d) if use_halton else uniform_generator(d)
+
+def get_sample_fn(body, joints, custom_limits={}, **kwargs):
+    generator = unit_generator(len(joints), **kwargs)
+    lower_limits, upper_limits = body.get_custom_limits(joints, custom_limits, circular_limits=CIRCULAR_LIMITS)
+    limits_extents = np.array(upper_limits) - np.array(lower_limits)
+    def fn():
+        return tuple(next(generator) * limits_extents + np.array(lower_limits))
+    return fn
+
+def get_halton_sample_fn(body, joints, **kwargs):
+    return get_sample_fn(body, joints, use_halton=True, **kwargs)
+
+def get_difference_fn(body, joints):
+    circular_joints = [joint.is_circular() for joint in joints]
+
+    def fn(q2, q1):
+        return tuple(geometry.circular_difference(value2, value1) if circular else (value2 - value1)
+                     for circular, value2, value1 in zip(circular_joints, q2, q1))
+    return fn
+
+def get_distance_fn(body, joints, weights=None): #, norm=2):
+    # TODO: use the energy resulting from the mass matrix here?
+    if weights is None:
+        weights = 1*np.ones(len(joints)) # TODO: use velocities here
+    difference_fn = get_difference_fn(body, joints)
+    def fn(q1, q2):
+        diff = np.array(difference_fn(q2, q1))
+        return np.sqrt(np.dot(weights, diff * diff))
+        #return np.linalg.norm(np.multiply(weights * diff), ord=norm)
+    return fn
+
+def get_refine_fn(body, joints, num_steps=0):
+    difference_fn = get_difference_fn(body, joints)
+    num_steps = num_steps + 1
+    def fn(q1, q2):
+        q = q1
+        for i in range(num_steps):
+            positions = (1. / (num_steps - i)) * np.array(difference_fn(q2, q)) + q
+            q = tuple(positions)
+            #q = tuple(wrap_positions(body, joints, positions))
+            yield q
+    return fn
+
+def refine_path(body, joints, waypoints, num_steps):
+    refine_fn = get_refine_fn(body, joints, num_steps)
+    refined_path = []
+    for v1, v2 in zip(waypoints, waypoints[1:]):
+        refined_path += list(refine_fn(v1, v2))
+    return refined_path
+
+DEFAULT_RESOLUTION = 0.05
+
+def get_extend_fn(body, joints, resolutions=None, norm=2):
+    # norm = 1, 2, INF
+    if resolutions is None:
+        resolutions = DEFAULT_RESOLUTION*np.ones(len(joints))
+    difference_fn = get_difference_fn(body, joints)
+    def fn(q1, q2):
+        #steps = int(np.max(np.abs(np.divide(difference_fn(q2, q1), resolutions))))
+        steps = int(np.linalg.norm(np.divide(difference_fn(q2, q1), resolutions), ord=norm))
+        refine_fn = get_refine_fn(body, joints, num_steps=steps)
+        return refine_fn(q1, q2)
+    return fn
+
+def waypoints_from_path(path, tolerance=1e-3):
+    if len(path) < 2:
+        return path
+
+    def difference_fn(q2, q1):
+        return np.array(q2) - np.array(q1)
+    #difference_fn = get_difference_fn(body, joints)
+
+    waypoints = [path[0]]
+    last_conf = path[1]
+    last_difference = geometry.get_unit_vector(difference_fn(last_conf, waypoints[-1]))
+    for conf in path[2:]:
+        difference = geometry.get_unit_vector(difference_fn(conf, waypoints[-1]))
+        if not np.allclose(last_difference, difference, atol=tolerance, rtol=0):
+            waypoints.append(last_conf)
+            difference = geometry.get_unit_vector(difference_fn(conf, waypoints[-1]))
+        last_conf = conf
+        last_difference = difference
+    waypoints.append(last_conf)
+    return waypoints
+
+def get_moving_links(body, joints):
+    moving_links = set()
+    for joint in joints:
+        link = joint.child_link_from_joint()
+        if link not in moving_links:
+            moving_links.update(link.get_link_subtree())
+    return list(moving_links)
+
+def get_moving_pairs(body, moving_joints):
+    """
+    Check all fixed and moving pairs
+    Do not check all fixed and fixed pairs
+    Check all moving pairs with a common
+    """
+    moving_links = body.get_moving_links(moving_joints)
+    for link1, link2 in combinations(moving_links, 2):
+        ancestors1 = set(link1.get_joint_ancestors()) & set(moving_joints)
+        ancestors2 = set(link2.get_joint_ancestors()) & set(moving_joints)
+        if ancestors1 != ancestors2:
+            yield link1, link2
+
+
+def get_self_link_pairs(body, joints, disabled_collisions=set(), only_moving=True):
+    moving_links = body.get_moving_links(joints)
+    fixed_links = list(set(body.links) - set(moving_links))
+    check_link_pairs = list(product(moving_links, fixed_links))
+    if only_moving:
+        check_link_pairs.extend(get_moving_pairs(body, joints))
+    else:
+        check_link_pairs.extend(combinations(moving_links, 2))
+    check_link_pairs = list(filter(lambda pair: not pair.are_links_adjacent(), check_link_pairs))
+    check_link_pairs = list(filter(lambda pair: (pair not in disabled_collisions) and
+                                   (pair[::-1] not in disabled_collisions), check_link_pairs))
+    return check_link_pairs
+
+
+def get_collision_fn(body, joints, obstacles, attachments, self_collisions, disabled_collisions,
+                     custom_limits={}, **kwargs):
+    # TODO: convert most of these to keyword arguments
+    check_link_pairs = get_self_link_pairs(body, joints, disabled_collisions) \
+        if self_collisions else []
+    moving_links = frozenset(get_moving_links(body, joints))
+    attached_bodies = [attachment.child for attachment in attachments]
+    moving_bodies = [(body, moving_links)] + attached_bodies
+    #moving_bodies = [body] + [attachment.child for attachment in attachments]
+    check_body_pairs = list(product(moving_bodies, obstacles))  # + list(combinations(moving_bodies, 2))
+    lower_limits, upper_limits = body.get_custom_limits(joints, custom_limits)
+
+    # TODO: maybe prune the link adjacent to the robot
+    # TODO: test self collision with the holding
+    def collision_fn(q):
+        if not helper.all_between(lower_limits, q, upper_limits):
+            #print('Joint limits violated')
+            return True
+        body.set_joint_positions(joints, q)
+        for attachment in attachments:
+            attachment.assign()
+        for link1, link2 in check_link_pairs:
+            # Self-collisions should not have the max_distance parameter
+            if pairwise_link_collision(body, link1, body, link2): #, **kwargs):
+                #print(get_body_name(body), get_link_name(body, link1), get_link_name(body, link2))
+                return True
+        for body1, body2 in check_body_pairs:
+            if pairwise_collision(body1, body2, **kwargs):
+                #print(get_body_name(body1), get_body_name(body2))
+                return True
+        return False
+    return collision_fn
+
+def plan_waypoints_joint_motion(body, joints, waypoints, start_conf=None, obstacles=[], attachments=[],
+                                self_collisions=True, disabled_collisions=set(),
+                                resolutions=None, custom_limits={}, max_distance=MAX_DISTANCE):
+    extend_fn = get_extend_fn(body, joints, resolutions=resolutions)
+    collision_fn = get_collision_fn(body, joints, obstacles, attachments, self_collisions, disabled_collisions,
+                                    custom_limits=custom_limits, max_distance=max_distance)
+    if start_conf is None:
+        start_conf = body.get_joint_positions(joints)
+    else:
+        assert len(start_conf) == len(joints)
+
+    for i, waypoint in enumerate([start_conf] + list(waypoints)):
+        if collision_fn(waypoint):
+            #print("Warning: waypoint configuration {}/{} is in collision".format(i, len(waypoints)))
+            return None
+    path = [start_conf]
+    for waypoint in waypoints:
+        assert len(joints) == len(waypoint)
+        for q in extend_fn(path[-1], waypoint):
+            if collision_fn(q):
+                return None
+            path.append(q)
+    return path
+
+def plan_direct_joint_motion(body, joints, end_conf, **kwargs):
+    return plan_waypoints_joint_motion(body, joints, [end_conf], **kwargs)
+
+def check_initial_end(start_conf, end_conf, collision_fn):
+    if collision_fn(start_conf):
+        print("Warning: initial configuration is in collision")
+        return False
+    if collision_fn(end_conf):
+        print("Warning: end configuration is in collision")
+        return False
+    return True
+
+def plan_joint_motion(body, joints, end_conf, obstacles=[], attachments=[],
+                      self_collisions=True, disabled_collisions=set(),
+                      weights=None, resolutions=None, max_distance=MAX_DISTANCE, custom_limits={}, **kwargs):
+
+    assert len(joints) == len(end_conf)
+    sample_fn = get_sample_fn(body, joints, custom_limits=custom_limits)
+    distance_fn = get_distance_fn(body, joints, weights=weights)
+    extend_fn = get_extend_fn(body, joints, resolutions=resolutions)
+    collision_fn = get_collision_fn(body, joints, obstacles, attachments, self_collisions, disabled_collisions,
+                                    custom_limits=custom_limits, max_distance=max_distance)
+
+    start_conf = body.get_joint_positions(joints)
+
+    if not check_initial_end(start_conf, end_conf, collision_fn):
+        return None
+    return birrt(start_conf, end_conf, distance_fn, sample_fn, extend_fn, collision_fn, **kwargs)
+    #return plan_lazy_prm(start_conf, end_conf, sample_fn, extend_fn, collision_fn)
+
+def plan_lazy_prm(start_conf, end_conf, sample_fn, extend_fn, collision_fn, **kwargs):
+    # TODO: cost metric based on total robot movement (encouraging greater distances possibly)
+    from motion_planners.lazy_prm import lazy_prm
+    path, samples, edges, colliding_vertices, colliding_edges = lazy_prm(
+        start_conf, end_conf, sample_fn, extend_fn, collision_fn, num_samples=200, **kwargs)
+    if path is None:
+        return path
+
+    #lower, upper = get_custom_limits(body, joints, circular_limits=CIRCULAR_LIMITS)
+    def draw_fn(q): # TODO: draw edges instead of vertices
+        return np.append(q[:2], [1e-3])
+        #return np.array([1, 1, 0.25])*(q + np.array([0., 0., np.pi]))
+    handles = []
+    for q1, q2 in zip(path, path[1:]):
+        handles.append(add_line(draw_fn(q1), draw_fn(q2), color=(0, 1, 0)))
+    for i1, i2 in edges:
+        color = (0, 0, 1)
+        if any(colliding_vertices.get(i, False) for i in (i1, i2)) or colliding_vertices.get((i1, i2), False):
+            color = (1, 0, 0)
+        elif not colliding_vertices.get((i1, i2), True):
+            color = (0, 0, 0)
+        handles.append(add_line(draw_fn(samples[i1]), draw_fn(samples[i2]), color=color))
+    wait_for_user()
+    return path
+
+#####################################
+
+def get_closest_angle_fn(body, joints, reversible=True):
+    assert len(joints) == 3
+    linear_extend_fn = get_distance_fn(body, joints[:2])
+    angular_extend_fn = get_distance_fn(body, joints[2:])
+
+    def closest_fn(q1, q2):
+        angle_and_distance = []
+        for direction in [0, PI] if reversible else [PI]:
+            angle = geometry.get_angle(q1[:2], q2[:2]) + direction
+            distance = angular_extend_fn(q1[2:], [angle]) \
+                       + linear_extend_fn(q1[:2], q2[:2]) \
+                       + angular_extend_fn([angle], q2[2:])
+            angle_and_distance.append((angle, distance))
+        return min(angle_and_distance, key=lambda pair: pair[1])
+    return closest_fn
+
+def get_nonholonomic_distance_fn(body, joints, weights=None, **kwargs):
+    assert weights is None
+    closest_angle_fn = get_closest_angle_fn(body, joints, **kwargs)
+
+    def distance_fn(q1, q2):
+        _, distance = closest_angle_fn(q1, q2)
+        return distance
+    return distance_fn
+
+def get_nonholonomic_extend_fn(body, joints, resolutions=None, **kwargs):
+    assert resolutions is None
+    assert len(joints) == 3
+    linear_extend_fn = get_extend_fn(body, joints[:2])
+    angular_extend_fn = get_extend_fn(body, joints[2:])
+    closest_angle_fn = get_closest_angle_fn(body, joints, **kwargs)
+
+    def extend_fn(q1, q2):
+        angle, _ = closest_angle_fn(q1, q2)
+        path = []
+        for aq in angular_extend_fn(q1[2:], [angle]):
+            path.append(np.append(q1[:2], aq))
+        for lq in linear_extend_fn(q1[:2], q2[:2]):
+            path.append(np.append(lq, [angle]))
+        for aq in angular_extend_fn([angle], q2[2:]):
+            path.append(np.append(q2[:2], aq))
+        return path
+    return extend_fn
+
+def plan_nonholonomic_motion(body, joints, end_conf, obstacles=[], attachments=[],
+                             self_collisions=True, disabled_collisions=set(),
+                             weights=None, resolutions=None, reversible=True,
+                             max_distance=MAX_DISTANCE, custom_limits={}, **kwargs):
+
+    assert len(joints) == len(end_conf)
+    sample_fn = get_sample_fn(body, joints, custom_limits=custom_limits)
+    distance_fn = get_nonholonomic_distance_fn(body, joints, weights=weights, reversible=reversible)
+    extend_fn = get_nonholonomic_extend_fn(body, joints, resolutions=resolutions, reversible=reversible)
+    collision_fn = get_collision_fn(body, joints, obstacles, attachments,
+                                    self_collisions, disabled_collisions,
+                                    custom_limits=custom_limits, max_distance=max_distance)
+
+    start_conf = body.get_joint_positions(joints)
+    if not check_initial_end(start_conf, end_conf, collision_fn):
+        return None
+    return birrt(start_conf, end_conf, distance_fn, sample_fn, extend_fn, collision_fn, **kwargs)
+
+#####################################
+
+# SE(2) pose motion planning
+
+def get_base_difference_fn():
+    def fn(q2, q1):
+        dx, dy = np.array(q2[:2]) - np.array(q1[:2])
+        dtheta = geometry.circular_difference(q2[2], q1[2])
+        return (dx, dy, dtheta)
+    return fn
+
+def get_base_distance_fn(weights=1*np.ones(3)):
+    difference_fn = get_base_difference_fn()
+    def fn(q1, q2):
+        difference = np.array(difference_fn(q2, q1))
+        return np.sqrt(np.dot(weights, difference * difference))
+    return fn
+
+def plan_base_motion(body, end_conf, base_limits, obstacles=[], direct=False,
+                     weights=1*np.ones(3), resolutions=0.05*np.ones(3),
+                     max_distance=MAX_DISTANCE, **kwargs):
+    def sample_fn():
+        x, y = np.random.uniform(*base_limits)
+        theta = np.random.uniform(*CIRCULAR_LIMITS)
+        return (x, y, theta)
+
+
+    difference_fn = get_base_difference_fn()
+    distance_fn = get_base_distance_fn(weights=weights)
+
+    def extend_fn(q1, q2):
+        steps = np.abs(np.divide(difference_fn(q2, q1), resolutions))
+        n = int(np.max(steps)) + 1
+        q = q1
+        for i in range(n):
+            q = tuple((1. / (n - i)) * np.array(difference_fn(q2, q)) + q)
+            yield q
+            # TODO: should wrap these joints
+
+    def collision_fn(q):
+        # TODO: update this function
+        body.set_base_values(q)
+        return any(pairwise_collision(body, obs, max_distance=max_distance) for obs in obstacles)
+
+    start_conf = body.get_base_values()
+    if collision_fn(start_conf):
+        print("Warning: initial configuration is in collision")
+        return None
+    if collision_fn(end_conf):
+        print("Warning: end configuration is in collision")
+        return None
+    if direct:
+        return direct_path(start_conf, end_conf, extend_fn, collision_fn)
+    return birrt(start_conf, end_conf, distance_fn,
+                 sample_fn, extend_fn, collision_fn, **kwargs)
+
+#####################################
+
+# Placements
+
+def stable_z_on_aabb(body, aabb):
+    center, extent = get_center_extent(body)
+    _, upper = aabb
+    return (upper + extent/2 + (body.get_point() - center))[2]
+
+def stable_z(body, surface, surface_link=None):
+    return stable_z_on_aabb(body, get_aabb(surface, link=surface_link))
+
+def is_placed_on_aabb(body, bottom_aabb, above_epsilon=1e-2, below_epsilon=0.0):
+    assert (0 <= above_epsilon) and (0 <= below_epsilon)
+    top_aabb = get_aabb(body) # TODO: approximate_as_prism
+    top_z_min = top_aabb[0][2]
+    bottom_z_max = bottom_aabb[1][2]
+    return ((bottom_z_max - below_epsilon) <= top_z_min <= (bottom_z_max + above_epsilon)) and \
+           (aabb_contains_aabb(aabb2d_from_aabb(top_aabb), aabb2d_from_aabb(bottom_aabb)))
+
+def is_placement(body, surface, **kwargs):
+    return is_placed_on_aabb(body, get_aabb(surface), **kwargs)
+
+def is_center_on_aabb(body, bottom_aabb, above_epsilon=1e-2, below_epsilon=0.0):
+    # TODO: compute AABB in origin
+    # TODO: use center of mass?
+    assert (0 <= above_epsilon) and (0 <= below_epsilon)
+    center, extent = get_center_extent(body) # TODO: approximate_as_prism
+    base_center = center - np.array([0, 0, extent[2]])/2
+    top_z_min = base_center[2]
+    bottom_z_max = bottom_aabb[1][2]
+    return ((bottom_z_max - abs(below_epsilon)) <= top_z_min <= (bottom_z_max + abs(above_epsilon))) and \
+           (aabb_contains_point(base_center[:2], aabb2d_from_aabb(bottom_aabb)))
+
+def is_center_stable(body, surface, **kwargs):
+    return is_center_on_aabb(body, get_aabb(surface), **kwargs)
+
+def sample_placement_on_aabb(top_body, bottom_aabb, top_pose=geometry.unit_pose(),
+                             percent=1.0, max_attempts=50, epsilon=1e-3):
+    # TODO: transform into the coordinate system of the bottom
+    # TODO: maybe I should instead just require that already in correct frame
+    for _ in range(max_attempts):
+        theta = np.random.uniform(*CIRCULAR_LIMITS)
+        rotation = geometry.Euler(yaw=theta)
+        top_body.set_pose(geometry.multiply(geometry.Pose(euler=rotation), top_pose))
+        center, extent = get_center_extent(top_body)
+        lower = (np.array(bottom_aabb[0]) + percent*extent/2)[:2]
+        upper = (np.array(bottom_aabb[1]) - percent*extent/2)[:2]
+        if np.less(upper, lower).any():
+            continue
+        x, y = np.random.uniform(lower, upper)
+        z = (bottom_aabb[1] + extent/2.)[2] + epsilon
+        point = np.array([x, y, z]) + (top_body.get_point() - center)
+        pose = geometry.multiply(geometry.Pose(point, rotation), top_pose)
+        top_body.set_pose(pose)
+        return pose
+    return None
+
+def sample_placement(top_body, bottom_body, bottom_link=None, **kwargs):
+    bottom_aabb = get_aabb(bottom_body, link=bottom_link)
+    return sample_placement_on_aabb(top_body, bottom_aabb, **kwargs)
+
+#####################################
+
+# Reachability
+
+def sample_reachable_base(robot, point, reachable_range=(0.25, 1.0)):
+    radius = np.random.uniform(*reachable_range)
+    x, y = radius*geometry.unit_from_theta(np.random.uniform(-np.pi, np.pi)) + point[:2]
+    yaw = np.random.uniform(*CIRCULAR_LIMITS)
+    base_values = (x, y, yaw)
+    #set_base_values(robot, base_values)
+    return base_values
+
+def uniform_pose_generator(robot, gripper_pose, **kwargs):
+    point = geometry.point_from_pose(gripper_pose)
+    while True:
+        base_values = sample_reachable_base(robot, point, **kwargs)
+        if base_values is None:
+            break
+        yield base_values
+        #set_base_values(robot, base_values)
+        #yield get_pose(robot)
+
+#####################################
+
+# Constraints - applies forces when not satisfied
+
+def get_constraints():
+    """
+    getConstraintUniqueId will take a serial index in range 0..getNumConstraints,  and reports the constraint unique id.
+    Note that the constraint unique ids may not be contiguous, since you may remove constraints.
+    """
+    return [p.getConstraintUniqueId(i, physicsClientId=CLIENT)
+            for i in range(p.getNumConstraints(physicsClientId=CLIENT))]
+
+def remove_constraint(constraint):
+    p.removeConstraint(constraint, physicsClientId=CLIENT)
+
+ConstraintInfo = namedtuple('ConstraintInfo', ['parentBodyUniqueId', 'parentJointIndex',
+                                               'childBodyUniqueId', 'childLinkIndex', 'constraintType',
+                                               'jointAxis', 'jointPivotInParent', 'jointPivotInChild',
+                                               'jointFrameOrientationParent', 'jointFrameOrientationChild', 'maxAppliedForce'])
+
+def get_constraint_info(constraint): # getConstraintState
+    # TODO: four additional arguments
+    return ConstraintInfo(*p.getConstraintInfo(constraint, physicsClientId=CLIENT)[:11])
+
+def get_fixed_constraints():
+    fixed_constraints = []
+    for constraint in get_constraints():
+        constraint_info = get_constraint_info(constraint)
+        if constraint_info.constraintType == p.JOINT_FIXED:
+            fixed_constraints.append(constraint)
+    return fixed_constraints
+
+def add_fixed_constraint(body, robot, robot_link, max_force=None):
+    body_link = BASE_LINK
+    body_pose = body.get_pose()
+    #body_pose = get_com_pose(body, link=body_link)
+    #end_effector_pose = get_link_pose(robot, robot_link)
+    end_effector_pose = robot_link.get_com_pose() 
+    grasp_pose = geometry.multiply(geometry.invert(end_effector_pose), body_pose)
+    point, quat = grasp_pose
+    # TODO: can I do this when I'm not adjacent?
+    # joint axis in local frame (ignored for JOINT_FIXED)
+    #return p.createConstraint(robot, robot_link, body, body_link,
+    #                          p.JOINT_FIXED, jointAxis=unit_point(),
+    #                          parentFramePosition=unit_point(),
+    #                          childFramePosition=point,
+    #                          parentFrameOrientation=unit_quat(),
+    #                          childFrameOrientation=quat)
+    constraint = p.createConstraint(robot, robot_link, body, body_link,  # Both seem to work
+                                    p.JOINT_FIXED, jointAxis=geometry.unit_point(),
+                                    parentFramePosition=point,
+                                    childFramePosition=geometry.unit_point(),
+                                    parentFrameOrientation=quat,
+                                    childFrameOrientation=geometry.unit_quat(),
+                                    physicsClientId=CLIENT)
+    if max_force is not None:
+        p.changeConstraint(constraint, maxForce=max_force, physicsClientId=CLIENT)
+    return constraint
+
+def remove_fixed_constraint(body, robot, robot_link):
+    for constraint in get_fixed_constraints():
+        constraint_info = get_constraint_info(constraint)
+        if (body == constraint_info.childBodyUniqueId) and \
+                (BASE_LINK == constraint_info.childLinkIndex) and \
+                (robot == constraint_info.parentBodyUniqueId) and \
+                (robot_link == constraint_info.parentJointIndex):
+            remove_constraint(constraint)
+
+#####################################
+
+# Grasps
+
+GraspInfo = namedtuple('GraspInfo', ['get_grasps', 'approach_pose'])
+
+class Attachment(object):
+    def __init__(self, parent, parent_link, grasp_pose, child):
+        self.parent = parent
+        self.parent_link = parent_link
+        self.grasp_pose = grasp_pose
+        self.child = child
+        #self.child_link = child_link # child_link=BASE_LINK
+    @property
+    def bodies(self):
+        return flatten_links(self.child) | flatten_links(self.parent, self.parent_link.get_link_subtree())
+    def assign(self):
+        parent_link_pose = self.parent_link.get_link_pose() 
+        child_pose = body_from_end_effector(parent_link_pose, self.grasp_pose)
+        self.child.set_pose(child_pose)
+        return child_pose
+    def apply_mapping(self, mapping):
+        self.parent = mapping.get(self.parent, self.parent)
+        self.child = mapping.get(self.child, self.child)
+    def __repr__(self):
+        return '{}({},{})'.format(self.__class__.__name__, self.parent, self.child)
+
+def create_attachment(parent, parent_link, child):
+    parent_link_pose = parent_link.get_link_pose() 
+    child_pose = child.get_pose()
+    grasp_pose = geometry.multiply(geometry.invert(parent_link_pose), child_pose)
+    return Attachment(parent, parent_link, grasp_pose, child)
+
+def body_from_end_effector(end_effector_pose, grasp_pose):
+    """
+    world_from_parent * parent_from_child = world_from_child
+    """
+    return geometry.multiply(end_effector_pose, grasp_pose)
+
+def end_effector_from_body(body_pose, grasp_pose):
+    """
+    grasp_pose: the body's pose in gripper's frame
+
+    world_from_child * (parent_from_child)^(-1) = world_from_parent
+    (parent: gripper, child: body to be grasped)
+
+    Pose_{world,gripper} = Pose_{world,block}*Pose_{block,gripper}
+                         = Pose_{world,block}*(Pose_{gripper,block})^{-1}
+    """
+    return geometry.multiply(body_pose, geometry.invert(grasp_pose))
+
+def approach_from_grasp(approach_pose, end_effector_pose):
+    return geometry.multiply(approach_pose, end_effector_pose)
+
+def get_grasp_pose(constraint):
+    """
+    Grasps are parent_from_child
+    """
+    constraint_info = get_constraint_info(constraint)
+    assert(constraint_info.constraintType == p.JOINT_FIXED)
+    joint_from_parent = (constraint_info.jointPivotInParent, constraint_info.jointFrameOrientationParent)
+    joint_from_child = (constraint_info.jointPivotInChild, constraint_info.jointFrameOrientationChild)
+    return geometry.multiply(geometry.invert(joint_from_parent), joint_from_child)
+
+#####################################
+
+# Control
+
+def control_joint(body, joint, value):
+    return p.setJointMotorControl2(bodyUniqueId=body,
+                                   jointIndex=joint,
+                                   controlMode=p.POSITION_CONTROL,
+                                   targetPosition=value,
+                                   targetVelocity=0.0,
+                                   maxVelocity=joint.get_max_velocity(),
+                                   force=joint.get_max_force(),
+                                   physicsClientId=CLIENT)
+
+def control_joints(body, joints, positions):
+    # TODO: the whole PR2 seems to jitter
+    #kp = 1.0
+    #kv = 0.3
+    #forces = [get_max_force(body, joint) for joint in joints]
+    #forces = [5000]*len(joints)
+    #forces = [20000]*len(joints)
+    return p.setJointMotorControlArray(body, joints, p.POSITION_CONTROL,
+                                       targetPositions=positions,
+                                       targetVelocities=[0.0] * len(joints),
+                                       physicsClientId=CLIENT) #,
+                                        #positionGains=[kp] * len(joints),
+                                        #velocityGains=[kv] * len(joints),)
+                                        #forces=forces)
+
+def joint_controller(body, joints, target, tolerance=1e-3):
+    assert(len(joints) == len(target))
+    positions = body.get_joint_positions(joints)
+    while not np.allclose(positions, target, atol=tolerance, rtol=0):
+        control_joints(body, joints, target)
+        yield positions
+        positions = body.get_joint_positions(joints)
+
+def joint_controller_hold(body, joints, target, **kwargs):
+    """
+    Keeps other joints in place
+    """
+    movable_joints = body.get_movable_joints()
+    conf = list(body.get_joint_positions(movable_joints))
+    for joint, value in zip(body.movable_from_joints(joints), target):
+        conf[joint] = value
+    return joint_controller(body, movable_joints, conf, **kwargs)
+
+def joint_controller_hold2(body, joints, positions, velocities=None,
+                           tolerance=1e-2 * np.pi, position_gain=0.05, velocity_gain=0.01):
+    """
+    Keeps other joints in place
+    """
+    # TODO: velocity_gain causes the PR2 to oscillate
+    if velocities is None:
+        velocities = [0.] * len(positions)
+    movable_joints = body.get_movable_joints()
+    target_positions = list(body.get_joint_positions(movable_joints))
+    target_velocities = [0.] * len(movable_joints)
+    movable_from_original = {o: m for m, o in enumerate(movable_joints)}
+    #print(list(positions), list(velocities))
+    for joint, position, velocity in zip(joints, positions, velocities):
+        target_positions[movable_from_original[joint]] = position
+        target_velocities[movable_from_original[joint]] = velocity
+    # return joint_controller(body, movable_joints, conf)
+    current_conf = body.get_joint_positions(movable_joints)
+    #forces = [get_max_force(body, joint) for joint in movable_joints]
+    while not np.allclose(current_conf, target_positions, atol=tolerance, rtol=0):
+        # TODO: only enforce velocity constraints at end
+        p.setJointMotorControlArray(body, movable_joints, p.POSITION_CONTROL,
+                                    targetPositions=target_positions,
+                                    #targetVelocities=target_velocities,
+                                    positionGains=[position_gain] * len(movable_joints),
+                                    #velocityGains=[velocity_gain] * len(movable_joints),
+                                    #forces=forces,
+                                    physicsClientId=CLIENT)
+        yield current_conf
+        current_conf = body.get_joint_positions(movable_joints)
+
+def trajectory_controller(body, joints, path, **kwargs):
+    for target in path:
+        for positions in joint_controller(body, joints, target, **kwargs):
+            yield positions
+
+def simulate_controller(controller, max_time=np.inf): # Allow option to sleep rather than yield?
+    sim_dt = get_time_step()
+    sim_time = 0.0
+    for _ in controller:
+        if max_time < sim_time:
+            break
+        step_simulation()
+        sim_time += sim_dt
+        yield sim_time
+
+def velocity_control_joints(body, joints, velocities):
+    #kv = 0.3
+    return p.setJointMotorControlArray(body, joints, p.VELOCITY_CONTROL,
+                                       targetVelocities=velocities,
+                                       physicsClientId=CLIENT) #,
+                                        #velocityGains=[kv] * len(joints),)
+                                        #forces=forces)
+
+#####################################
+
+def compute_jacobian(robot, link, positions=None):
+    joints = robot.get_movable_joints()
+    if positions is None:
+        positions = robot.get_joint_positions(joints)
+    assert len(joints) == len(positions)
+    velocities = [0.0] * len(positions)
+    accelerations = [0.0] * len(positions)
+    translate, rotate = p.calculateJacobian(robot, link, geometry.unit_point(), positions,
+                                            velocities, accelerations, physicsClientId=CLIENT)
+    #movable_from_joints(robot, joints)
+    return list(zip(*translate)), list(zip(*rotate)) # len(joints) x 3
+
+
+def compute_joint_weights(robot, num=100):
+    # http://openrave.org/docs/0.6.6/_modules/openravepy/databases/linkstatistics/#LinkStatisticsModel
+    start_time = time.time()
+    joints = robot.get_movable_joints()
+    sample_fn = get_sample_fn(robot, joints)
+    weighted_jacobian = np.zeros(len(joints))
+    links = list(robot.links)
+    # links = {l for j in joints for l in get_link_descendants(self.robot, j)}
+    masses = [robot.get_mass(link.linkID) for link in links]  # Volume, AABB volume
+    total_mass = sum(masses)
+    for _ in range(num):
+        conf = sample_fn()
+        for mass, link in zip(masses, links):
+            translate, rotate = compute_jacobian(robot, link, conf)
+            weighted_jacobian += np.array([mass * np.linalg.norm(vec) for vec in translate]) / total_mass
+    weighted_jacobian /= num
+    print(list(weighted_jacobian))
+    print(time.time() - start_time)
+    return weighted_jacobian
+
+#####################################
+
+def inverse_kinematics_helper(robot, link, target_pose, null_space=None):
+    (target_point, target_quat) = target_pose
+    assert target_point is not None
+    if null_space is not None:
+        assert target_quat is not None
+        lower, upper, ranges, rest = null_space
+
+        kinematic_conf = p.calculateInverseKinematics(robot, link, target_point,
+                                                      lowerLimits=lower, upperLimits=upper, jointRanges=ranges, restPoses=rest,
+                                                      physicsClientId=CLIENT)
+    elif target_quat is None:
+        #ikSolver = p.IK_DLS or p.IK_SDLS
+        kinematic_conf = p.calculateInverseKinematics(robot, link, target_point,
+                                                      #lowerLimits=ll, upperLimits=ul, jointRanges=jr, restPoses=rp, jointDamping=jd,
+                                                      # solver=ikSolver, maxNumIterations=-1, residualThreshold=-1,
+                                                      physicsClientId=CLIENT)
+    else:
+        kinematic_conf = p.calculateInverseKinematics(robot, link, target_point, target_quat, physicsClientId=CLIENT)
+    if (kinematic_conf is None) or any(map(math.isnan, kinematic_conf)):
+        return None
+    return kinematic_conf
+
+def is_pose_close(pose, target_pose, pos_tolerance=1e-3, ori_tolerance=1e-3*np.pi):
+    (point, quat) = pose
+    (target_point, target_quat) = target_pose
+    if (target_point is not None) and not np.allclose(point, target_point, atol=pos_tolerance, rtol=0):
+        return False
+    if (target_quat is not None) and not np.allclose(quat, target_quat, atol=ori_tolerance, rtol=0):
+        # TODO: account for quaternion redundancy
+        return False
+    return True
+
+def inverse_kinematics(robot, link, target_pose, max_iterations=200, custom_limits={}, **kwargs):
+    movable_joints = robot.get_movable_joints()
+    for iterations in range(max_iterations):
+        # TODO: stop is no progress
+        # TODO: stop if collision or invalid joint limits
+        kinematic_conf = inverse_kinematics_helper(robot, link, target_pose)
+        if kinematic_conf is None:
+            return None
+        robot.set_joint_positions(movable_joints, kinematic_conf)
+        if is_pose_close(link.get_link_pose(), target_pose, **kwargs):
+            break
+    else:
+        return None
+    lower_limits, upper_limits = robot.get_custom_limits(movable_joints, custom_limits)
+    if not helper.all_between(lower_limits, kinematic_conf, upper_limits):
+        return None
+    return kinematic_conf
+
+#####################################
+
+# def workspace_trajectory(robot, link, start_point, direction, quat, **kwargs):
+#     # TODO: pushing example
+#     # TODO: just use current configuration?
+#     # TODO: check collisions?
+#     # TODO: lower intermediate tolerance
+#     traj = []
+#     for pose in get_cartesian_waypoints(start_point, direction, quat):
+#         conf = inverse_kinematics(robot, link, pose, **kwargs)
+#         if conf is None:
+#             return None
+#         traj.append(conf)
+#     return traj
+
+#####################################
+
+NullSpace = namedtuple('Nullspace', ['lower', 'upper', 'range', 'rest'])
+
+def get_null_space(robot, joints, custom_limits={}):
+    rest_positions = robot.get_joint_positions(joints)
+    lower, upper = robot.get_custom_limits(joints, custom_limits)
+    lower = np.maximum(lower, -10*np.ones(len(joints)))
+    upper = np.minimum(upper, +10*np.ones(len(joints)))
+    joint_ranges = 10*np.ones(len(joints))
+    return NullSpace(list(lower), list(upper), list(joint_ranges), list(rest_positions))
+
+def plan_cartesian_motion(robot, first_joint, target_link, waypoint_poses,
+                          max_iterations=200, custom_limits={}, **kwargs):
+    # TODO: fix stationary joints
+    # TODO: pass in set of movable joints and take least common ancestor
+    # TODO: update with most recent bullet updates
+    # https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/inverse_kinematics.py
+    # https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/inverse_kinematics_husky_kuka.py
+    # TODO: plan a path without needing to following intermediate waypoints
+
+    lower_limits, upper_limits = robot.get_custom_limits(robot.get_movable_joints(), custom_limits)
+    selected_links = robot.get_link_subtree(first_joint) # TODO: child_link_from_joint?
+    selected_movable_joints = robot.prune_fixed_joints(selected_links)
+    assert(target_link in selected_links)
+    selected_target_link = selected_links.index(target_link)
+    sub_robot = clone_body(robot, links=selected_links, visual=False, collision=False) # TODO: joint limits
+    sub_movable_joints = sub_robot.get_movable_joints(robot)
+    #null_space = get_null_space(robot, selected_movable_joints, custom_limits=custom_limits)
+    null_space = None
+
+    solutions = []
+    for target_pose in waypoint_poses:
+        for iteration in range(max_iterations):
+            sub_kinematic_conf = inverse_kinematics_helper(sub_robot, selected_target_link, target_pose, null_space=null_space)
+            if sub_kinematic_conf is None:
+                sub_robot.remove_body()
+                return None
+            sub_robot.set_joint_positions(sub_movable_joints, sub_kinematic_conf)
+            if is_pose_close(sub_robot.get_link_pose(selected_target_link), target_pose, **kwargs):
+                robot.set_joint_positions(selected_movable_joints, sub_kinematic_conf)
+                kinematic_conf = robot.get_configuration()
+                if not helper.all_between(lower_limits, kinematic_conf, upper_limits):
+                    #movable_joints = get_movable_joints(robot)
+                    #print([(get_joint_name(robot, j), l, v, u) for j, l, v, u in
+                    #       zip(movable_joints, lower_limits, kinematic_conf, upper_limits) if not (l <= v <= u)])
+                    #print("Limits violated")
+                    #wait_for_user()
+                    sub_robot.remove_body()
+                    return None
+                #print("IK iterations:", iteration)
+                solutions.append(kinematic_conf)
+                break
+        else:
+            sub_robot.remove_body()
+            return None
+    sub_robot.remove_body()
+    return solutions
+
+def sub_inverse_kinematics(robot, first_joint, target_link, target_pose, **kwargs):
+    solutions = plan_cartesian_motion(robot, first_joint, target_link, [target_pose], **kwargs)
+    if solutions:
+        return solutions[0]
+    return None
+
+#####################################
+
+def get_lifetime(lifetime):
+    if lifetime is None:
+        return 0
+    return lifetime
+
+def add_debug_parameter():
+    # TODO: make a slider that controls the step in the trajectory
+    # TODO: could store a list of savers
+    #targetVelocitySlider = p.addUserDebugParameter("wheelVelocity", -10, 10, 0)
+    #maxForce = p.readUserDebugParameter(maxForceSlider)
+    raise NotImplementedError()
+
+def add_text(text, position=(0, 0, 0), color=(0, 0, 0), lifetime=None, parent=-1, parent_link=BASE_LINK):
+    return p.addUserDebugText(str(text), textPosition=position, textColorRGB=color[:3], # textSize=1,
+                              lifeTime=get_lifetime(lifetime), parentObjectUniqueId=parent, parentLinkIndex=parent_link,
+                              physicsClientId=CLIENT)
+
+def add_line(start, end, color=(0, 0, 0), width=1, lifetime=None, parent=-1, parent_link=BASE_LINK):
+    return p.addUserDebugLine(start, end, lineColorRGB=color[:3], lineWidth=width,
+                              lifeTime=get_lifetime(lifetime), parentObjectUniqueId=parent, parentLinkIndex=parent_link,
+                              physicsClientId=CLIENT)
+
+def remove_debug(debug):
+    p.removeUserDebugItem(debug, physicsClientId=CLIENT)
+
+remove_handle = remove_debug
+
+def remove_handles(handles):
+    for handle in handles:
+        remove_debug(handle)
+
+def remove_all_debug():
+    p.removeAllUserDebugItems(physicsClientId=CLIENT)
+
+def add_body_name(body, name=None, **kwargs):
+    if name is None:
+        name = body.get_name()
+    with PoseSaver(body):
+        body.set_pose(geometry.unit_pose())
+        lower, upper = get_aabb(body)
+    #position = (0, 0, upper[2])
+    position = upper
+    return add_text(name, position=position, parent=body, **kwargs)  # removeUserDebugItem
+
+def add_segments(points, closed=False, **kwargs):
+    lines = []
+    for v1, v2 in zip(points, points[1:]):
+        lines.append(add_line(v1, v2, **kwargs))
+    if closed:
+        lines.append(add_line(points[-1], points[0], **kwargs))
+    return lines
+
+def draw_link_name(body, link=BASE_LINK):
+    return add_text(link.get_link_name(), position=(0, 0.2, 0),
+                    parent=body, parent_link=link)
+
+def draw_pose(pose, length=0.1, **kwargs):
+    origin_world = geometry.tform_point(pose, np.zeros(3))
+    handles = []
+    for k in range(3):
+        axis = np.zeros(3)
+        axis[k] = 1
+        axis_world = geometry.tform_point(pose, length*axis)
+        handles.append(add_line(origin_world, axis_world, color=axis, **kwargs))
+    return handles
+
+def draw_base_limits(limits, z=1e-2, **kwargs):
+    lower, upper = limits
+    vertices = [(lower[0], lower[1], z), (lower[0], upper[1], z),
+                (upper[0], upper[1], z), (upper[0], lower[1], z)]
+    return add_segments(vertices, closed=True, **kwargs)
+
+def draw_circle(center, radius, n=24, **kwargs):
+    vertices = []
+    for i in range(n):
+        theta = i*2*math.pi/n
+        unit = np.append(geometry.unit_from_theta(theta), [0])
+        vertices.append(center+radius*unit)
+    return add_segments(vertices, closed=True, **kwargs)
+
+def get_aabb_vertices(aabb):
+    d = len(aabb[0])
+    return [tuple(aabb[i[k]][k] for k in range(d))
+            for i in product(range(len(aabb)), repeat=d)]
+
+def draw_aabb(aabb, **kwargs):
+    d = len(aabb[0])
+    vertices = list(product(range(len(aabb)), repeat=d))
+    lines = []
+    for i1, i2 in combinations(vertices, 2):
+        if sum(i1[k] != i2[k] for k in range(d)) == 1:
+            p1 = [aabb[i1[k]][k] for k in range(d)]
+            p2 = [aabb[i2[k]][k] for k in range(d)]
+            lines.append(add_line(p1, p2, **kwargs))
+    return lines
+
+def draw_point(point, size=0.01, **kwargs):
+    lines = []
+    for i in range(len(point)):
+        axis = np.zeros(len(point))
+        axis[i] = 1.0
+        p1 = np.array(point) - size/2 * axis
+        p2 = np.array(point) + size/2 * axis
+        lines.append(add_line(p1, p2, **kwargs))
+    return lines
+    #extent = size * np.ones(len(point)) / 2
+    #aabb = np.array(point) - extent, np.array(point) + extent
+    #return draw_aabb(aabb, **kwargs)
+
+def get_face_edges(face):
+    #return list(combinations(face, 2))
+    return list(zip(face, face[1:] + face[:1]))
+
+def draw_mesh(mesh, **kwargs):
+    verts, faces = mesh
+    lines = []
+    for face in faces:
+        for i1, i2 in get_face_edges(face):
+            lines.append(add_line(verts[i1], verts[i2], **kwargs))
+    return lines
+
+def draw_ray(ray, ray_result=None, visible_color=GREEN, occluded_color=RED, **kwargs):
+    if ray_result is None:
+        return [add_line(ray.start, ray.end, color=visible_color, **kwargs)]
+    if ray_result.objectUniqueId == -1:
+        hit_position = ray.end
+    else:
+        hit_position = ray_result.hit_position
+    return [
+        add_line(ray.start, hit_position, color=visible_color, **kwargs),
+        add_line(hit_position, ray.end, color=occluded_color, **kwargs),
+    ]
+
+#####################################
+
+# Sampling edges
+
+def sample_categorical(categories):
+    from bisect import bisect
+    names = categories.keys()
+    cutoffs = np.cumsum([categories[name] for name in names])/sum(categories.values())
+    return names[bisect(cutoffs, np.random.random())]
+
+def sample_edge_point(polygon, radius):
+    edges = zip(polygon, polygon[-1:] + polygon[:-1])
+    edge_weights = {i: max(geometry.get_length(v2 - v1) - 2 * radius, 0) for i, (v1, v2) in enumerate(edges)}
+    # TODO: fail if no options
+    while True:
+        index = sample_categorical(edge_weights)
+        v1, v2 = edges[index]
+        t = np.random.uniform(radius, geometry.get_length(v2 - v1) - 2 * radius)
+        yield t * geometry.get_unit_vector(v2 - v1) + v1
+
+def get_closest_edge_point(polygon, point):
+    # TODO: always pick perpendicular to the edge
+    edges = zip(polygon, polygon[-1:] + polygon[:-1])
+    best = None
+    for v1, v2 in edges:
+        proj = (v2 - v1)[:2].dot((point - v1)[:2])
+        if proj <= 0:
+            closest = v1
+        elif geometry.get_length((v2 - v1)[:2]) <= proj:
+            closest = v2
+        else:
+            closest = proj * geometry.get_unit_vector((v2 - v1))
+        if (best is None) or (geometry.get_length((point - closest)[:2]) < geometry.get_length((point - best)[:2])):
+            best = closest
+    return best
+
+def sample_edge_pose(polygon, world_from_surface, mesh):
+    radius = max(geometry.get_length(v[:2]) for v in mesh.vertices)
+    origin_from_base = geometry.Pose(geometry.Point(z=p.min(mesh.vertices[:, 2])))
+    for point in sample_edge_point(polygon, radius):
+        theta = np.random.uniform(0, 2 * np.pi)
+        surface_from_origin = geometry.Pose(point, geometry.Euler(yaw=theta))
+        yield geometry.multiply(world_from_surface, surface_from_origin, origin_from_base)
+
+#####################################
+
+# Mesh & Pointcloud Files
+
+def obj_file_from_mesh(mesh, under=True):
+    """
+    Creates a *.obj mesh string
+    :param mesh: tuple of list of vertices and list of faces
+    :return: *.obj mesh string
+    """
+    vertices, faces = mesh
+    s = 'g Mesh\n' # TODO: string writer
+    for v in vertices:
+        assert(len(v) == 3)
+        s += '\nv {}'.format(' '.join(map(str, v)))
+    for f in faces:
+        #assert(len(f) == 3) # Not necessarily true
+        f = [i+1 for i in f] # Assumes mesh is indexed from zero
+        s += '\nf {}'.format(' '.join(map(str, f)))
+        if under:
+            s += '\nf {}'.format(' '.join(map(str, reversed(f))))
+    return s
+
+def get_connected_components(vertices, edges):
+    undirected_edges = defaultdict(set)
+    for v1, v2 in edges:
+        undirected_edges[v1].add(v2)
+        undirected_edges[v2].add(v1)
+    clusters = []
+    processed = set()
+    for v0 in vertices:
+        if v0 in processed:
+            continue
+        processed.add(v0)
+        cluster = {v0}
+        queue = deque([v0])
+        while queue:
+            v1 = queue.popleft()
+            for v2 in (undirected_edges[v1] - processed):
+                processed.add(v2)
+                cluster.add(v2)
+                queue.append(v2)
+        if cluster: # preserves order
+            clusters.append(frozenset(cluster))
+    return clusters
+
+def read_obj(path, decompose=True):
+    mesh = Mesh([], [])
+    meshes = {}
+    vertices = []
+    faces = []
+    for line in helper.read(path).split('\n'):
+        tokens = line.split()
+        if not tokens:
+            continue
+        if tokens[0] == 'o':
+            name = tokens[1]
+            mesh = Mesh([], [])
+            meshes[name] = mesh
+        elif tokens[0] == 'v':
+            vertex = tuple(map(float, tokens[1:4]))
+            vertices.append(vertex)
+        elif tokens[0] in ('vn', 's'):
+            pass
+        elif tokens[0] == 'f':
+            face = tuple(int(token.split('/')[0]) - 1 for token in tokens[1:])
+            faces.append(face)
+            mesh.faces.append(face)
+    if not decompose:
+        return Mesh(vertices, faces)
+    #if not meshes:
+    #    # TODO: ensure this still works if no objects
+    #    meshes[None] = mesh
+    #new_meshes = {}
+    # TODO: make each triangle a separate object
+    for name, mesh in meshes.items():
+        indices = sorted({i for face in mesh.faces for i in face})
+        mesh.vertices[:] = [vertices[i] for i in indices]
+        new_index_from_old = {i2: i1 for i1, i2 in enumerate(indices)}
+        mesh.faces[:] = [tuple(new_index_from_old[i1] for i1 in face) for face in mesh.faces]
+        #edges = {edge for face in mesh.faces for edge in get_face_edges(face)}
+        #for k, cluster in enumerate(get_connected_components(indices, edges)):
+        #    new_name = '{}#{}'.format(name, k)
+        #    new_indices = sorted(cluster)
+        #    new_vertices = [vertices[i] for i in new_indices]
+        #    new_index_from_old = {i2: i1 for i1, i2 in enumerate(new_indices)}
+        #    new_faces = [tuple(new_index_from_old[i1] for i1 in face)
+        #                 for face in mesh.faces if set(face) <= cluster]
+        #    new_meshes[new_name] = Mesh(new_vertices, new_faces)
+    return meshes
+
+
+def transform_obj_file(obj_string, transformation):
+    new_lines = []
+    for line in obj_string.split('\n'):
+        tokens = line.split()
+        if not tokens or (tokens[0] != 'v'):
+            new_lines.append(line)
+            continue
+        vertex = list(map(float, tokens[1:]))
+        transformed_vertex = transformation.dot(vertex)
+        new_lines.append('v {}'.format(' '.join(map(str, transformed_vertex))))
+    return '\n'.join(new_lines)
+
+
+def read_mesh_off(path, scale=1.0):
+    """
+    Reads a *.off mesh file
+    :param path: path to the *.off mesh file
+    :return: tuple of list of vertices and list of faces
+    """
+    with open(path) as f:
+        assert (f.readline().split()[0] == 'OFF'), 'Not OFF file'
+        nv, nf, ne = [int(x) for x in f.readline().split()]
+        verts = [tuple(scale * float(v) for v in f.readline().split()) for _ in range(nv)]
+        faces = [tuple(map(int, f.readline().split()[1:])) for _ in range(nf)]
+        return Mesh(verts, faces)
+
+
+def read_pcd_file(path):
+    """
+    Reads a *.pcd pointcloud file
+    :param path: path to the *.pcd pointcloud file
+    :return: list of points
+    """
+    with open(path) as f:
+        data = f.readline().split()
+        num_points = 0
+        while data[0] != 'DATA':
+            if data[0] == 'POINTS':
+                num_points = int(data[1])
+            data = f.readline().split()
+            continue
+        return [tuple(map(float, f.readline().split())) for _ in range(num_points)]
+
+# TODO: factor out things that don't depend on pybullet
+
+#####################################
+
+# https://github.com/kohterai/OBJ-Parser
+
+"""
+def readWrl(filename, name='wrlObj', scale=1.0, color='black'):
+    def readOneObj():
+        vl = []
+        while True:
+            line = fl.readline()
+            split = line.split(',')
+            if len(split) != 2:
+                break
+            split = split[0].split()
+            if len(split) == 3:
+                vl.append(np.array([scale*float(x) for x in split]+[1.0]))
+            else:
+                break
+        print '    verts', len(vl),
+        verts = np.vstack(vl).T
+        while line.split()[0] != 'coordIndex':
+            line = fl.readline()
+        line = fl.readline()
+        faces = []
+        while True:
+            line = fl.readline()
+            split = line.split(',')
+            if len(split) > 3:
+                faces.append(np.array([int(x) for x in split[:3]]))
+            else:
+                break
+        print 'faces', len(faces)
+        return Prim(verts, faces, hu.Pose(0,0,0,0), None,
+                    name=name+str(len(prims)))
+
+    fl = open(filename)
+    assert fl.readline().split()[0] == '#VRML', 'Not VRML file?'
+    prims = []
+    while True:
+        line = fl.readline()
+        if not line: break
+        split = line.split()
+        if not split or split[0] != 'point':
+            continue
+        else:
+            print 'Object', len(prims)
+            prims.append(readOneObj())
+    # Have one "part" so that shadows are simpler
+    part = Shape(prims, None, name=name+'_part')
+    # Keep color only in top entry.
+    return Shape([part], None, name=name, color=color)
+"""
