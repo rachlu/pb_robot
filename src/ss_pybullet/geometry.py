@@ -5,6 +5,7 @@ import pybullet as p
 import ss_pybullet.transformations as transformations
 import ss_pybullet.helper as helper 
 
+CLIENT = 0
 # Geometry
 
 #Pose = namedtuple('Pose', ['position', 'orientation'])
@@ -110,6 +111,16 @@ def pose_from_tform(tform):
 def wrap_angle(theta, lower=-np.pi): # [-np.pi, np.pi)
     return (theta - lower) % (2 * np.pi) + lower
 
+def tform_from_pose(pose):
+    (point, quat) = pose
+    tform = np.eye(4)
+    tform[:3, 3] = point
+    tform[:3, :3] = matrix_from_quat(quat)
+    return tform
+
+def matrix_from_quat(quat):
+    return np.array(p.getMatrixFromQuaternion(quat, physicsClientId=CLIENT)).reshape(3, 3)
+
 def circular_difference(theta2, theta1):
     return wrap_angle(theta2 - theta1)
 
@@ -119,8 +130,11 @@ def base_values_from_pose(pose, tolerance=1e-3):
     roll, pitch, yaw = euler_from_quat(quat)
     assert (abs(roll) < tolerance) and (abs(pitch) < tolerance)
     return (x, y, yaw)
-
 pose2d_from_pose = base_values_from_pose
+
+def pose_from_pose2d(pose2d):
+    x, y, theta = pose2d
+    return Pose(Point(x=x, y=y), Euler(yaw=theta))
 
 def pose_from_base_values(base_values, default_pose=unit_pose()):
     x, y, yaw = base_values

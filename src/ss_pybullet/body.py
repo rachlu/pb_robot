@@ -221,7 +221,6 @@ class Body(object):
         return [movable_from_original[joint.jointID] for joint in fjoints]
 
     def get_custom_limits(self, joints=None, custom_limits={}, circular_limits=utils.UNBOUNDED_LIMITS):
-         #TODO What is the output of this
         joint_limits = []
         for joint in self.format_joint_input(joints):
             if joint in custom_limits:
@@ -230,6 +229,7 @@ class Body(object):
                 joint_limits.append(circular_limits)
             else:
                 joint_limits.append(joint.get_joint_limits())
+        return zip(*joint_limits)
 
     def is_fixed_base(self):
         return self.get_mass(self.id) == self.static_mass 

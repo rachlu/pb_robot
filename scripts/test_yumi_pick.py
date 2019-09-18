@@ -4,11 +4,14 @@ from __future__ import print_function
 
 import IPython
 import ss_pybullet
+import ss_pybullet.utils_noBase as utils
+import ss_pybullet.viz as viz
+import ss_pybullet.placements as placements
 from ss_pybullet.yumi_primitives import get_grasp_gen
 from ss_pybullet.primitives import BodyPose, BodyConf, Command, \
     get_ik_fn, get_free_motion_gen, get_holding_motion_gen
 from ss_pybullet.utils_noBase import WorldSaver, enable_gravity, connect, dump_world, \
-    set_default_camera, stable_z, YUMI_URDF, \
+    set_default_camera, YUMI_URDF, \
     BLOCK_URDF, wait_for_user, disconnect, user_input, update_state, disable_real_time
 from ss_pybullet.geometry import Pose, Point
 
@@ -49,14 +52,21 @@ def main(display='execute'): # control | execute | step
     yumi = ss_pybullet.body.Body(YUMI_URDF)
     floor = ss_pybullet.body.Body('models/short_floor.urdf')
     block = ss_pybullet.body.Body(BLOCK_URDF, fixed_base=False)
-    block.set_pose(Pose(Point(y=0., x=0.5, z=stable_z(block, floor))))
+    block.set_pose(Pose(Point(y=0., x=0.5, z=placements.stable_z(block, floor))))
     set_default_camera()
     #dump_world()
+
+    right_hand = yumi.link_from_name('gripper_r_base') # definition would go in robot.py
+    current_t = right_hand.get_link_pose()
+    new_p = (0.58, 0.0, 0.515) 
+    target_p = (new_p, current_t[1])
+    viz.draw_pose(target_p, length=0.5, width=10)
+    #f = utils.inverse_kinematics(yumi, right_hand, target_p)
 
     IPython.embed()
 
     saved_world = WorldSaver()
-    command = plan(robot, block, fixed=[floor], teleport=False)
+    #command = plan(robot, block, fixed=[floor], teleport=False)
     #if (command is None) or (display is None):
     #    print('Unable to find a plan!')
     #    return
