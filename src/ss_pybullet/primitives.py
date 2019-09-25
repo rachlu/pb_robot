@@ -1,13 +1,8 @@
 import time
-# dump_body(robot)
-
-from .utils import get_pose, set_pose, get_movable_joints, set_joint_positions
-from .utils import add_fixed_constraint, enable_real_time, disable_real_time, joint_controller, \
-    enable_gravity, get_refine_fn, user_input, wait_for_duration, link_from_name, get_body_name, sample_placement, \
-    end_effector_from_body, approach_from_grasp, plan_joint_motion, GraspInfo, \
-    inverse_kinematics, pairwise_collision, remove_fixed_constraint, Attachment, get_sample_fn, \
-    step_simulation, refine_path, plan_direct_joint_motion, get_joint_positions, dump_world
-from .geometry import Pose, Point
+import ss_pybullet.utils_noBase as utils
+import planning
+import constraints
+import placements
 
 DEBUG_FAILURE = False
 
@@ -16,11 +11,11 @@ DEBUG_FAILURE = False
 class BodyPose(object):
     def __init__(self, body, pose=None):
         if pose is None:
-            pose = get_pose(body)
+            pose = body.get_pose()
         self.body = body
         self.pose = pose
     def assign(self):
-        set_pose(self.body, self.pose)
+        self.body.set_pose(self.pose)
         return self.pose
     def __repr__(self):
         return 'p{}'.format(id(self) % 1000)
@@ -36,7 +31,7 @@ class BodyGrasp(object):
     #def constraint(self):
     #    grasp_constraint()
     def attachment(self):
-        return Attachment(self.robot, self.link, self.grasp_pose, self.body)
+        return utils.Attachment(self.robot, self.link, self.grasp_pose, self.body)
     def assign(self):
         return self.attachment().assign()
     def __repr__(self):
@@ -46,14 +41,14 @@ class BodyGrasp(object):
 class BodyConf(object):
     def __init__(self, body, configuration=None, joints=None):
         if joints is None:
-            joints = get_movable_joints(body)
+            joints = body.get_movable_joints()
         if configuration is None:
-            configuration = get_joint_positions(body, joints)
+            configuration = body.get_joint_positions(joints)
         self.body = body
         self.joints = joints
         self.configuration = configuration
     def assign(self):
-        set_joint_positions(self.body, self.joints, self.configuration)
+        self.body.set_joint_positions(self.joints, self.configuration)
         return self.configuration
     def __repr__(self):
         return 'q{}'.format(id(self) % 1000)
@@ -62,7 +57,7 @@ class BodyConf(object):
 class BodyPath(object):
     def __init__(self, body, path, joints=None, attachments=[]):
         if joints is None:
-            joints = get_movable_joints(body)
+            joints = body.get_movable_joints()
         self.body = body
         self.path = path
         self.joints = joints
@@ -73,26 +68,26 @@ class BodyPath(object):
         # TODO: compute and cache these
         # TODO: compute bounding boxes as well
         for i, configuration in enumerate(self.path):
-            set_joint_positions(self.body, self.joints, configuration)
+            self.body.set_joint_positions(self.joints, configuration)
             for grasp in self.attachments:
                 grasp.assign()
             yield i
     def control(self, real_time=False, dt=0):
         # TODO: just waypoints
         if real_time:
-            enable_real_time()
+            utils.enable_real_time()
         else:
-            disable_real_time()
+            utils.disable_real_time()
         for values in self.path:
-            for _ in joint_controller(self.body, self.joints, values):
-                enable_gravity()
+            for _ in utils.joint_controller(self.body, self.joints, values):
+                utils.enable_gravity()
                 if not real_time:
-                    step_simulation()
+                    utils.step_simulation()
                 time.sleep(dt)
     # def full_path(self, q0=None):
     #     # TODO: could produce sequence of savers
     def refine(self, num_steps=0):
-        return self.__class__(self.body, refine_path(self.body, self.joints, self.path, num_steps), self.joints, self.attachments)
+        return self.__class__(self.body, planning.refine_path(self.body, self.joints, self.path, num_steps), self.joints, self.attachments)
     def reverse(self):
         return self.__class__(self.body, self.path[::-1], self.joints, self.attachments)
     def __repr__(self):
@@ -117,13 +112,13 @@ class ApplyForce(object):
 class Attach(ApplyForce):
     def control(self, **kwargs):
         # TODO: store the constraint_id?
-        add_fixed_constraint(self.body, self.robot, self.link)
+        constraints.add_fixed_constraint(self.body, self.robot, self.link)
     def reverse(self):
         return Detach(self.body, self.robot, self.link)
 
 class Detach(ApplyForce):
     def control(self, **kwargs):
-        remove_fixed_constraint(self.body, self.robot, self.link)
+        constraints.remove_fixed_constraint(self.body, self.robot, self.link)
     def reverse(self):
         return Attach(self.body, self.robot, self.link)
 
@@ -143,14 +138,14 @@ class Command(object):
         for i, body_path in enumerate(self.body_paths):
             for j in body_path.iterator():
                 msg = '{},{}) step?'.format(i, j)
-                user_input(msg)
+                utils.user_input(msg)
                 #print(msg)
 
     def execute(self, time_step=0.05):
         for i, body_path in enumerate(self.body_paths):
             for j in body_path.iterator():
                 #time.sleep(time_step)
-                wait_for_duration(time_step)
+                utils.wait_for_duration(time_step)
 
     def control(self, real_time=False, dt=0): # TODO: real_time
         for body_path in self.body_paths:
@@ -170,8 +165,8 @@ class Command(object):
 def get_stable_gen(fixed=[]): # TODO: continuous set of grasps
     def gen(body, surface):
         while True:
-            pose = sample_placement(body, surface)
-            if (pose is None) or any(pairwise_collision(body, b) for b in fixed):
+            pose = placements.sample_placement(body, surface)
+            if (pose is None) or any(utils.pairwise_collision(body, b) for b in fixed):
                 continue
             body_pose = BodyPose(body, pose)
             yield (body_pose,)
@@ -180,21 +175,21 @@ def get_stable_gen(fixed=[]): # TODO: continuous set of grasps
 
 
 def get_ik_fn(robot, fixed=[], teleport=False, num_attempts=10):
-    movable_joints = get_movable_joints(robot)
-    sample_fn = get_sample_fn(robot, movable_joints)
+    movable_joints = robot.get_movable_joints()
+    sample_fn = planning.get_sample_fn(robot, movable_joints)
     def fn(body, pose, grasp):
         obstacles = [body] + fixed
-        gripper_pose = end_effector_from_body(pose.pose, grasp.grasp_pose)
-        approach_pose = approach_from_grasp(grasp.approach_pose, gripper_pose)
+        gripper_pose = utils.end_effector_from_body(pose.pose, grasp.grasp_pose)
+        approach_pose = utils.approach_from_grasp(grasp.approach_pose, gripper_pose)
         for _ in range(num_attempts):
-            set_joint_positions(robot, movable_joints, sample_fn()) # Random seed
+            robot.set_joint_positions(movable_joints, sample_fn()) # Random seed
             # TODO: multiple attempts?
-            q_approach = inverse_kinematics(robot, grasp.link, approach_pose)
-            if (q_approach is None) or any(pairwise_collision(robot, b) for b in obstacles):
+            q_approach = utils.inverse_kinematics(robot, grasp.link, approach_pose)
+            if (q_approach is None) or any(utils.pairwise_collision(robot, b) for b in obstacles):
                 continue
             conf = BodyConf(robot, q_approach)
-            q_grasp = inverse_kinematics(robot, grasp.link, gripper_pose)
-            if (q_grasp is None) or any(pairwise_collision(robot, b) for b in obstacles):
+            q_grasp = utils.inverse_kinematics(robot, grasp.link, gripper_pose)
+            if (q_grasp is None) or any(utils.pairwise_collision(robot, b) for b in obstacles):
                 continue
             if teleport:
                 path = [q_approach, q_grasp]
@@ -203,9 +198,9 @@ def get_ik_fn(robot, fixed=[], teleport=False, num_attempts=10):
                 #direction, _ = grasp.approach_pose
                 #path = workspace_trajectory(robot, grasp.link, point_from_pose(approach_pose), -direction,
                 #                                   quat_from_pose(approach_pose))
-                path = plan_direct_joint_motion(robot, conf.joints, q_grasp, obstacles=obstacles)
+                path = planning.plan_direct_joint_motion(robot, conf.joints, q_grasp, obstacles=obstacles)
                 if path is None:
-                    if DEBUG_FAILURE: user_input('Approach motion failed')
+                    if DEBUG_FAILURE: utils.user_input('Approach motion failed')
                     continue
             command = Command([BodyPath(robot, path),
                                Attach(body, robot, grasp.link),
@@ -237,9 +232,9 @@ def get_free_motion_gen(robot, fixed=[], teleport=False, self_collisions=True):
         else:
             conf1.assign()
             obstacles = fixed + assign_fluent_state(fluents)
-            path = plan_joint_motion(robot, conf2.joints, conf2.configuration, obstacles=obstacles, self_collisions=self_collisions)
+            path = planning.plan_joint_motion(robot, conf2.joints, conf2.configuration, obstacles=obstacles, self_collisions=self_collisions)
             if path is None:
-                if DEBUG_FAILURE: user_input('Free motion failed')
+                if DEBUG_FAILURE: utils.user_input('Free motion failed')
                 return None
         command = Command([BodyPath(robot, path, joints=conf2.joints)])
         return (command,)
@@ -254,10 +249,11 @@ def get_holding_motion_gen(robot, fixed=[], teleport=False, self_collisions=True
         else:
             conf1.assign()
             obstacles = fixed + assign_fluent_state(fluents)
-            path = plan_joint_motion(robot, conf2.joints, conf2.configuration,
-                                     obstacles=obstacles, attachments=[grasp.attachment()], self_collisions=self_collisions)
+            path = planning.plan_joint_motion(robot, conf2.joints, conf2.configuration,
+                                              obstacles=obstacles, attachments=[grasp.attachment()], 
+                                              self_collisions=self_collisions)
             if path is None:
-                if DEBUG_FAILURE: user_input('Holding motion failed')
+                if DEBUG_FAILURE: utils.user_input('Holding motion failed')
                 return None
         command = Command([BodyPath(robot, path, joints=conf2.joints, attachments=[grasp])])
         return (command,)
@@ -275,8 +271,8 @@ def get_movable_collision_test():
                 continue
             for _ in path.iterator():
                 # TODO: could shuffle this
-                if any(pairwise_collision(mov, body) for mov in moving):
-                    if DEBUG_FAILURE: user_input('Movable collision')
+                if any(utils.pairwise_collision(mov, body) for mov in moving):
+                    if DEBUG_FAILURE: utils.user_input('Movable collision')
                     return True
         return False
     return test

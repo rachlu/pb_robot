@@ -168,6 +168,9 @@ class Body(object):
         elif isinstance(joints, int):
             # Return individual joint from id number
             return [self.joints[joints]]
+        elif isinstance(joints, str):
+            # Return individual joint from name
+            return [self.joint_from_name(joints)]
         elif isinstance(joints, Joint):
             # Return individual joint from joint type
             return [joints]
@@ -233,6 +236,9 @@ class Body(object):
 
     def is_fixed_base(self):
         return self.get_mass(self.id) == self.static_mass 
+
+    def get_num_links(self):
+        return len(self.links)
 
     def get_adjacent_links(self):
         # Untested

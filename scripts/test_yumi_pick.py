@@ -7,25 +7,23 @@ import ss_pybullet
 import ss_pybullet.utils_noBase as utils
 import ss_pybullet.viz as viz
 import ss_pybullet.placements as placements
-from ss_pybullet.yumi_primitives import get_grasp_gen
 from ss_pybullet.primitives import BodyPose, BodyConf, Command, \
     get_ik_fn, get_free_motion_gen, get_holding_motion_gen
 from ss_pybullet.utils_noBase import WorldSaver, enable_gravity, connect, dump_world, \
-    set_default_camera, YUMI_URDF, \
-    BLOCK_URDF, wait_for_user, disconnect, user_input, update_state, disable_real_time
+    set_default_camera, BLOCK_URDF, wait_for_user, disconnect, user_input, update_state, disable_real_time
 from ss_pybullet.geometry import Pose, Point
 
 def plan(robot, block, fixed, teleport):
-    grasp_gen = get_grasp_gen(robot, 'top')
+    grasp_gen = robot.get_grasp_gen(robot.right_hand, 'top')
     ik_fn = get_ik_fn(robot, fixed=fixed, teleport=teleport)
     free_motion_fn = get_free_motion_gen(robot, fixed=([block] + fixed), teleport=teleport)
     holding_motion_fn = get_holding_motion_gen(robot, fixed=fixed, teleport=teleport)
 
     pose0 = BodyPose(block)
     conf0 = BodyConf(robot)
-    saved_world = WorldSaver()
+    #saved_world = WorldSaver() TODO 
     for grasp, in grasp_gen(block):
-        saved_world.restore()
+        #saved_world.restore()
         result1 = ik_fn(block, pose0, grasp)
         if result1 is None:
             continue
@@ -49,7 +47,7 @@ def main(display='execute'): # control | execute | step
     #floor = load_model('models/short_floor.urdf')
     #block = load_model(BLOCK_URDF, fixed_base=False)
 
-    yumi = ss_pybullet.body.Body(YUMI_URDF)
+    yumi = ss_pybullet.yumi.Yumi()
     floor = ss_pybullet.body.Body('models/short_floor.urdf')
     block = ss_pybullet.body.Body(BLOCK_URDF, fixed_base=False)
     block.set_pose(Pose(Point(y=0., x=0.5, z=placements.stable_z(block, floor))))
@@ -57,21 +55,21 @@ def main(display='execute'): # control | execute | step
     #dump_world()
 
     right_hand = yumi.link_from_name('gripper_r_base') # definition would go in robot.py
-    current_t = right_hand.get_link_pose()
+    current_t = yumi.right_hand.get_link_pose()
     new_p = (0.58, 0.0, 0.515) 
     target_p = (new_p, current_t[1])
     viz.draw_pose(target_p, length=0.5, width=10)
     #f = utils.inverse_kinematics(yumi, right_hand, target_p)
 
-    IPython.embed()
+    #IPython.embed()
 
-    saved_world = WorldSaver()
-    #command = plan(robot, block, fixed=[floor], teleport=False)
+    #saved_world = WorldSaver()
+    command = plan(yumi, block, fixed=[floor], teleport=False)
     #if (command is None) or (display is None):
     #    print('Unable to find a plan!')
     #    return
 
-    saved_world.restore()
+    #saved_world.restore()
     '''update_state()
     user_input('{}?'.format(display))
     if display == 'control':

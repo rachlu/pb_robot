@@ -3,7 +3,7 @@ import time
 
 from .pr2_utils import get_top_grasps
 from .utils import INF, GraspInfo
-from .primitives import link_from_name, get_body_name, BodyGrasp
+from .primitives import BodyGrasp
 from .geometry import Pose, Point
 
 GRASP_INFO = {
@@ -17,7 +17,7 @@ TOOL_FRAMES = {
 
 def get_grasp_gen(robot, grasp_name):
     grasp_info = GRASP_INFO[grasp_name]
-    end_effector_link = link_from_name(robot, TOOL_FRAMES[get_body_name(robot)])
+    end_effector_link = robot.link_from_name(robot, TOOL_FRAMES[robot.get_body_name()])
     def gen(body):
         grasp_poses = grasp_info.get_grasps(body)
         for grasp_pose in grasp_poses:

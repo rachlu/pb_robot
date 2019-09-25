@@ -9,6 +9,7 @@ from itertools import product, count
 import numpy as np
 import pybullet as p
 
+import ss_pybullet
 import ss_pybullet.helper as helper
 import ss_pybullet.geometry as geometry
 import ss_pybullet.aabb as aabbs
@@ -922,7 +923,7 @@ def visual_shape_from_data(data, client=None):
                                physicsClientId=client)
 
 def get_visual_data(body, link=BASE_LINK):
-    visual_data = [VisualShapeData(*tup) for tup in p.getVisualShapeData(body, physicsClientId=CLIENT)]
+    visual_data = [VisualShapeData(*tup) for tup in p.getVisualShapeData(body.id, physicsClientId=CLIENT)]
     return list(filter(lambda d: d.linkIndex == link, visual_data))
 
 # object_unique_id and linkIndex seem to be noise
@@ -1037,7 +1038,7 @@ def clone_body(body, links=None, collision=True, visual=True, client=None):
     #set_configuration(new_body, get_joint_positions(body, movable_joints)) # Need to use correct client
     for joint, value in zip(range(len(links)), body.get_joint_positions(links)):
         # TODO: check if movable?
-        p.resetJointState(new_body, joint, value, targetVelocity=0, physicsClientId=client)
+        p.resetJointState(new_body.id, joint, value, targetVelocity=0, physicsClientId=client)
     return new_body
 
 def clone_world(client=None, exclude=[]):
@@ -1053,7 +1054,7 @@ def clone_world(client=None, exclude=[]):
 
 def get_collision_data(body, link=BASE_LINK):
     # TODO: try catch
-    return [CollisionShapeData(*tup) for tup in p.getCollisionShapeData(body, link, physicsClientId=CLIENT)]
+    return [CollisionShapeData(*tup) for tup in p.getCollisionShapeData(body.id, link, physicsClientId=CLIENT)]
 
 def get_data_type(data):
     return data.geometry_type if isinstance(data, CollisionShapeData) else data.visualGeometryType
@@ -1162,7 +1163,7 @@ def set_color(body, color, link=BASE_LINK, shape_index=-1):
     :return:
     """
     # specularColor
-    return p.changeVisualShape(body, link, shapeIndex=shape_index, rgbaColor=color,
+    return p.changeVisualShape(body.id, link.id, shapeIndex=shape_index, rgbaColor=color,
                                #textureUniqueId=None, specularColor=None,
                                physicsClientId=CLIENT)
 
@@ -1182,8 +1183,8 @@ ContactResult = namedtuple('ContactResult', ['contactFlag', 'bodyUniqueIdA', 'bo
                                              'contactNormalOnB', 'contactDistance', 'normalForce'])
 
 def pairwise_link_collision(body1, link1, body2, link2=BASE_LINK, max_distance=MAX_DISTANCE): # 10000
-    return len(p.getClosestPoints(bodyA=body1, bodyB=body2, distance=max_distance,
-                                  linkIndexA=link1, linkIndexB=link2,
+    return len(p.getClosestPoints(bodyA=body1.id, bodyB=body2.id, distance=max_distance,
+                                  linkIndexA=link1.linkID, linkIndexB=link2.linkID,
                                   physicsClientId=CLIENT)) != 0 # getContactPoints
 
 def flatten_links(body, links=None):
@@ -1212,7 +1213,7 @@ def any_link_pair_collision(body1, links1, body2, links2=None, **kwargs):
 
 def body_collision(body1, body2, max_distance=MAX_DISTANCE): # 10000
     # TODO: confirm that this doesn't just check the base link
-    return len(p.getClosestPoints(bodyA=body1, bodyB=body2, distance=max_distance,
+    return len(p.getClosestPoints(bodyA=body1.id, bodyB=body2.id, distance=max_distance,
                                   physicsClientId=CLIENT)) != 0 # getContactPoints`
 
 def pairwise_collision(body1, body2, **kwargs):

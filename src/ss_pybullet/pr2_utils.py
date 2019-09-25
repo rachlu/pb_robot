@@ -6,6 +6,7 @@ from collections import namedtuple
 from itertools import combinations
 
 import numpy as np
+import utils_noBase as nutils
 
 from .pr2_never_collisions import NEVER_COLLISIONS
 from .utils import get_link_pose, joint_from_name, set_joint_position, joints_from_names, \
@@ -254,7 +255,7 @@ SIDE_HEIGHT_OFFSET = 0.03 # z distance from top of object
 def get_top_grasps(body, under=False, tool_pose=TOOL_POSE, body_pose=unit_pose(),
                    max_width=MAX_GRASP_WIDTH, grasp_length=GRASP_LENGTH):
     # TODO: rename the box grasps
-    center, (w, l, h) = approximate_as_prism(body, body_pose=body_pose)
+    center, (w, l, h) = nutils.approximate_as_prism(body, body_pose=body_pose)
     reflect_z = Pose(euler=[0, math.pi, 0])
     translate_z = Pose(point=[0, 0, h / 2 - grasp_length])
     translate_center = Pose(point=point_from_pose(body_pose)-center)
