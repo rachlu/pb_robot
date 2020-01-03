@@ -30,7 +30,7 @@ class Link(object):
     def get_link_parent(self):
         if self.linkID == self.base_link:
             return None
-        return self.parentJoint.get_joint_info().parentIndex
+        return self.body.all_links[self.linkID]
 
     def get_link_state(self, kinematics=True, velocity=True):
         # TODO: the defaults are set to False?
@@ -56,28 +56,22 @@ class Link(object):
         return link_state.worldLinkFramePosition, link_state.worldLinkFrameOrientation
 
     def get_link_children(self):
-        # Untested
         children = self.body.get_all_link_children() 
         return children.get(self, []) 
 
     def get_link_ancestors(self):
-        # Untested
         parent = self.get_link_parent()
-        print parent
         if parent is None:
             return []
-        return parent.get_link_ancestors() + [parent.id]
+        return parent.get_link_ancestors() + [parent]
 
     def get_joint_ancestors(self): 
-        # Untested
-        return self.get_link_ancestors() + [self]
+        return [l.parentJoint for l in self.get_link_ancestors()] + [self.parentJoint]
 
     def get_movable_joint_ancestors(self):
-        # Untested
         return self.body.prune_fixed_joints(self.get_joint_ancestors())
 
     def get_link_descendants(self, test=lambda l: True):
-        # Untested 
         descendants = []
         for child in self.get_link_children():
             if test(child):
@@ -86,7 +80,6 @@ class Link(object):
         return descendants
 
     def get_link_subtree(self, **kwargs):
-        # Untested
         return [self] + self.get_link_descendants(**kwargs)
 
     def get_local_link_pose(self): #XXX test

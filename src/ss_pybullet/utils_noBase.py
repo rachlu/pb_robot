@@ -4,7 +4,7 @@ import colorsys
 import math
 import os
 import time
-from collections import defaultdict, deque, namedtuple
+from collections import defaultdict, namedtuple
 from itertools import product, count
 import numpy as np
 import pybullet as p
@@ -14,6 +14,7 @@ import ss_pybullet.helper as helper
 import ss_pybullet.geometry as geometry
 import ss_pybullet.aabb as aabbs
 import ss_pybullet.constraints as constraints
+import ss_pybullet.meshes as meshes
 # from future_builtins import map, filter
 # from builtins import input # TODO - use future
 try:
@@ -48,10 +49,6 @@ YUMI_URDF = "models/yumi_description/yumi.urdf"
 
 # Objects
 KIVA_SHELF_SDF = "kiva_shelf/model.sdf"
-SMALL_BLOCK_URDF = "models/drake/objects/block_for_pick_and_place.urdf"
-BLOCK_URDF = "models/drake/objects/block_for_pick_and_place_mid_size.urdf"
-SINK_URDF = 'models/sink.urdf'
-STOVE_URDF = 'models/stove.urdf'
 
 #####################################
 
@@ -680,10 +677,9 @@ def restore_bullet(filename):
 #####################################
 
 # Bodies, Joints, Links
-#XXX new way to bodies?
 
 def get_bodies():
-    return [p.getBodyUniqueId(i, physicsClientId=CLIENT)
+    return [ss_pybullet.body.Body(p.getBodyUniqueId(i, physicsClientId=CLIENT))
             for i in range(p.getNumBodies(physicsClientId=CLIENT))]
 
 def has_body(name):
@@ -877,7 +873,6 @@ def create_obj(path, scale=1., mass=STATIC_MASS, collision=True, color=(0.5, 0.5
     return body
 
 
-Mesh = namedtuple('Mesh', ['vertices', 'faces'])
 mesh_count = count()
 TEMP_DIR = 'temp/'
 
@@ -887,7 +882,7 @@ def create_mesh(mesh, under=True, **kwargs):
     # TODO: maintain dict to file
     helper.ensure_dir(TEMP_DIR)
     path = os.path.join(TEMP_DIR, 'mesh{}.obj'.format(next(mesh_count)))
-    helper.write(path, obj_file_from_mesh(mesh, under=under))
+    helper.write(path, meshes.obj_file_from_mesh(mesh, under=under))
     return create_obj(path, **kwargs)
     #safe_remove(path) # TODO: removing might delete mesh?
 
@@ -1052,9 +1047,9 @@ def clone_world(client=None, exclude=[]):
 
 #####################################
 
-def get_collision_data(body, link=BASE_LINK):
+def get_collision_data(body, linkID=BASE_LINK):
     # TODO: try catch
-    return [CollisionShapeData(*tup) for tup in p.getCollisionShapeData(body.id, link, physicsClientId=CLIENT)]
+    return [CollisionShapeData(*tup) for tup in p.getCollisionShapeData(body.id, linkID, physicsClientId=CLIENT)]
 
 def get_data_type(data):
     return data.geometry_type if isinstance(data, CollisionShapeData) else data.visualGeometryType
@@ -1303,7 +1298,7 @@ def vertices_from_data(data):
         filename, scale = get_data_filename(data), get_data_scale(data)
         if filename == UNKNOWN_FILE:
             raise RuntimeError(filename)
-        mesh = read_obj(filename, decompose=False)
+        mesh = meshes.read_obj(filename, decompose=False)
         vertices = [scale*np.array(vertex) for vertex in mesh.vertices]
         # TODO: could compute AABB here for improved speed at the cost of being conservative
     #elif geometry_type == p.GEOM_PLANE:
@@ -1334,7 +1329,7 @@ def vertices_from_rigid(body, link=BASE_LINK):
         _, ext = os.path.splitext(info.path)
         if ext == '.obj':
             if info.path not in OBJ_MESH_CACHE:
-                OBJ_MESH_CACHE[info.path] = read_obj(info.path, decompose=False)
+                OBJ_MESH_CACHE[info.path] = meshes.read_obj(info.path, decompose=False)
             mesh = OBJ_MESH_CACHE[info.path]
             vertices = mesh.vertices
         else:
@@ -1545,42 +1540,6 @@ def velocity_control_joints(body, joints, velocities):
                                         #forces=forces)
 
 #####################################
-"""
-def compute_jacobian(robot, link, positions=None):
-    joints = robot.get_movable_joints()
-    if positions is None:
-        positions = robot.get_joint_positions(joints)
-    assert len(joints) == len(positions)
-    velocities = [0.0] * len(positions)
-    accelerations = [0.0] * len(positions)
-    translate, rotate = p.calculateJacobian(robot, link, geometry.unit_point(), positions,
-                                            velocities, accelerations, physicsClientId=CLIENT)
-    #movable_from_joints(robot, joints)
-    return list(zip(*translate)), list(zip(*rotate)) # len(joints) x 3
-
-
-def compute_joint_weights(robot, num=100):
-    # http://openrave.org/docs/0.6.6/_modules/openravepy/databases/linkstatistics/#LinkStatisticsModel
-    start_time = time.time()
-    joints = robot.get_movable_joints()
-    sample_fn = get_sample_fn(robot, joints)
-    weighted_jacobian = np.zeros(len(joints))
-    links = list(robot.links)
-    # links = {l for j in joints for l in get_link_descendants(self.robot, j)}
-    masses = [robot.get_mass(link.linkID) for link in links]  # Volume, AABB volume
-    total_mass = sum(masses)
-    for _ in range(num):
-        conf = sample_fn()
-        for mass, link in zip(masses, links):
-            translate, rotate = compute_jacobian(robot, link, conf)
-            weighted_jacobian += np.array([mass * np.linalg.norm(vec) for vec in translate]) / total_mass
-    weighted_jacobian /= num
-    print(list(weighted_jacobian))
-    print(time.time() - start_time)
-    return weighted_jacobian
-"""
-
-#####################################
 
 def inverse_kinematics_helper(robot, link, target_pose, null_space=None):
     (target_point, target_quat) = target_pose
@@ -1755,141 +1714,6 @@ def sample_edge_pose(polygon, world_from_surface, mesh):
         theta = np.random.uniform(0, 2 * np.pi)
         surface_from_origin = geometry.Pose(point, geometry.Euler(yaw=theta))
         yield geometry.multiply(world_from_surface, surface_from_origin, origin_from_base)
-
-#####################################
-
-# Mesh & Pointcloud Files
-
-def obj_file_from_mesh(mesh, under=True):
-    """
-    Creates a *.obj mesh string
-    :param mesh: tuple of list of vertices and list of faces
-    :return: *.obj mesh string
-    """
-    vertices, faces = mesh
-    s = 'g Mesh\n' # TODO: string writer
-    for v in vertices:
-        assert(len(v) == 3)
-        s += '\nv {}'.format(' '.join(map(str, v)))
-    for f in faces:
-        #assert(len(f) == 3) # Not necessarily true
-        f = [i+1 for i in f] # Assumes mesh is indexed from zero
-        s += '\nf {}'.format(' '.join(map(str, f)))
-        if under:
-            s += '\nf {}'.format(' '.join(map(str, reversed(f))))
-    return s
-
-def get_connected_components(vertices, edges):
-    undirected_edges = defaultdict(set)
-    for v1, v2 in edges:
-        undirected_edges[v1].add(v2)
-        undirected_edges[v2].add(v1)
-    clusters = []
-    processed = set()
-    for v0 in vertices:
-        if v0 in processed:
-            continue
-        processed.add(v0)
-        cluster = {v0}
-        queue = deque([v0])
-        while queue:
-            v1 = queue.popleft()
-            for v2 in (undirected_edges[v1] - processed):
-                processed.add(v2)
-                cluster.add(v2)
-                queue.append(v2)
-        if cluster: # preserves order
-            clusters.append(frozenset(cluster))
-    return clusters
-
-def read_obj(path, decompose=True):
-    mesh = Mesh([], [])
-    meshes = {}
-    vertices = []
-    faces = []
-    for line in helper.read(path).split('\n'):
-        tokens = line.split()
-        if not tokens:
-            continue
-        if tokens[0] == 'o':
-            name = tokens[1]
-            mesh = Mesh([], [])
-            meshes[name] = mesh
-        elif tokens[0] == 'v':
-            vertex = tuple(map(float, tokens[1:4]))
-            vertices.append(vertex)
-        elif tokens[0] in ('vn', 's'):
-            pass
-        elif tokens[0] == 'f':
-            face = tuple(int(token.split('/')[0]) - 1 for token in tokens[1:])
-            faces.append(face)
-            mesh.faces.append(face)
-    if not decompose:
-        return Mesh(vertices, faces)
-    #if not meshes:
-    #    # TODO: ensure this still works if no objects
-    #    meshes[None] = mesh
-    #new_meshes = {}
-    # TODO: make each triangle a separate object
-    for name, mesh in meshes.items():
-        indices = sorted({i for face in mesh.faces for i in face})
-        mesh.vertices[:] = [vertices[i] for i in indices]
-        new_index_from_old = {i2: i1 for i1, i2 in enumerate(indices)}
-        mesh.faces[:] = [tuple(new_index_from_old[i1] for i1 in face) for face in mesh.faces]
-        #edges = {edge for face in mesh.faces for edge in get_face_edges(face)}
-        #for k, cluster in enumerate(get_connected_components(indices, edges)):
-        #    new_name = '{}#{}'.format(name, k)
-        #    new_indices = sorted(cluster)
-        #    new_vertices = [vertices[i] for i in new_indices]
-        #    new_index_from_old = {i2: i1 for i1, i2 in enumerate(new_indices)}
-        #    new_faces = [tuple(new_index_from_old[i1] for i1 in face)
-        #                 for face in mesh.faces if set(face) <= cluster]
-        #    new_meshes[new_name] = Mesh(new_vertices, new_faces)
-    return meshes
-
-
-def transform_obj_file(obj_string, transformation):
-    new_lines = []
-    for line in obj_string.split('\n'):
-        tokens = line.split()
-        if not tokens or (tokens[0] != 'v'):
-            new_lines.append(line)
-            continue
-        vertex = list(map(float, tokens[1:]))
-        transformed_vertex = transformation.dot(vertex)
-        new_lines.append('v {}'.format(' '.join(map(str, transformed_vertex))))
-    return '\n'.join(new_lines)
-
-
-def read_mesh_off(path, scale=1.0):
-    """
-    Reads a *.off mesh file
-    :param path: path to the *.off mesh file
-    :return: tuple of list of vertices and list of faces
-    """
-    with open(path) as f:
-        assert (f.readline().split()[0] == 'OFF'), 'Not OFF file'
-        nv, nf, ne = [int(x) for x in f.readline().split()]
-        verts = [tuple(scale * float(v) for v in f.readline().split()) for _ in range(nv)]
-        faces = [tuple(map(int, f.readline().split()[1:])) for _ in range(nf)]
-        return Mesh(verts, faces)
-
-
-def read_pcd_file(path):
-    """
-    Reads a *.pcd pointcloud file
-    :param path: path to the *.pcd pointcloud file
-    :return: list of points
-    """
-    with open(path) as f:
-        data = f.readline().split()
-        num_points = 0
-        while data[0] != 'DATA':
-            if data[0] == 'POINTS':
-                num_points = int(data[1])
-            data = f.readline().split()
-            continue
-        return [tuple(map(float, f.readline().split())) for _ in range(num_points)]
 
 # TODO: factor out things that don't depend on pybullet
 

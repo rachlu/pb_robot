@@ -2,16 +2,61 @@
 
 from __future__ import print_function
 
+import os
 import IPython
 import ss_pybullet
 import ss_pybullet.utils_noBase as utils
 import ss_pybullet.viz as viz
 import ss_pybullet.placements as placements
-from ss_pybullet.primitives import BodyPose, BodyConf, Command, \
+import ss_pybullet.geometry as geometry
+from ss_pybullet.primitives import BodyPose, BodyConf, BodyPath, Command, \
     get_ik_fn, get_free_motion_gen, get_holding_motion_gen
+
 from ss_pybullet.utils_noBase import WorldSaver, enable_gravity, connect, dump_world, \
-    set_default_camera, BLOCK_URDF, wait_for_user, disconnect, user_input, update_state, disable_real_time
+    set_default_camera, wait_for_user, disconnect, user_input, update_state, disable_real_time
 from ss_pybullet.geometry import Pose, Point
+import numpy
+import time
+import util
+import planner
+
+def getDirectory():
+    '''Get the file path for the location of kinbody
+    @return object_path (string) Path to objects folder'''
+    from catkin.find_in_workspaces import find_in_workspaces
+    package_name = 'mcube_objects'
+    directory = 'data'
+    objects_path = find_in_workspaces(
+        search_dirs=['share'],
+        project=package_name,
+        path=directory,
+        first_match_only=True)
+    if len(objects_path) == 0:
+        raise RuntimeError('Can\'t find directory {}/{}'.format(
+            package_name, directory))
+    else:
+        objects_path = objects_path[0]
+    return objects_path
+
+def PlanGraspPaths(robot, start_q, end_q):
+    rrt = planner.ConstrainedPlanner(robot)
+    path_j = rrt.PlanToConfiguration(robot.right_arm, start_q, end_q)
+    
+    if path_j is None: print('Couldnt find path')
+    else: print('Found path')
+    raw_input("Go to next?")
+
+    end_pose = robot.right_arm.ComputeFK(end_q)
+    if end_pose is None:
+        raw_input("No ik. Terminating")
+    viz.draw_pose(geometry.pose_from_tform(end_pose), length=0.5, width=10)
+    raw_input("Go to next?")
+    path_p = rrt.PlanToEndEffectorPose(robot.right_arm, start_q, end_pose)
+
+    print(path_j)
+    print(path_p)
+    raw_input("Continue?")
+    return path_j
 
 def plan(robot, block, fixed, teleport):
     grasp_gen = robot.get_grasp_gen(robot.right_hand, 'top')
@@ -51,19 +96,29 @@ def main(display='execute'): # control | execute | step
     disable_real_time()
 
     yumi = ss_pybullet.yumi.Yumi()
-    floor = ss_pybullet.body.createBody('models/short_floor.urdf')
-    block = ss_pybullet.body.createBody(BLOCK_URDF, fixed_base=False)
+    objects_path = getDirectory()
+    floor_file = os.path.join(objects_path, 'furniture/short_floor.urdf')
+    block_file = os.path.join(objects_path, 'objects/block_for_pick_and_place_mid_size.urdf')
+    floor = ss_pybullet.body.createBody(floor_file)
+    block = ss_pybullet.body.createBody(block_file, fixed_base=False)
     block.set_pose(Pose(Point(y=0., x=0.5, z=placements.stable_z(block, floor))))
     set_default_camera()
     dump_world()
 
-    current_t = yumi.right_hand.get_link_pose()
-    new_p = (0.58, 0.0, 0.515) 
-    target_p = (new_p, current_t[1])
-    #viz.draw_pose(target_p, length=0.5, width=10)
-    #f = utils.inverse_kinematics(yumi, right_hand, target_p)
+    # Move left arm
+    t = [1, 1, 1, 1, 1, 1, 1]
+    yumi.left_arm.SetJointValues(t)
 
-    IPython.embed()
+    current_t = yumi.right_hand.get_link_pose()
+    #viz.draw_pose(current_t, length=0.5, width=10)
+
+    start_q = yumi.right_arm.GetJointValues()
+    end_q = start_q + numpy.random.random(7)*0.1
+    path = PlanGraspPaths(yumi, start_q, end_q)
+    command = Command([BodyPath(yumi, path, joints=yumi.right_arm.joints)]) #TODO unless the input is joint names?
+    raw_input("Execute?")
+    command.execute(time_step=0.005)
+
 
     '''
     saved_world = WorldSaver()

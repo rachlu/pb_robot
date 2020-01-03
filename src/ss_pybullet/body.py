@@ -1,4 +1,5 @@
 from collections import defaultdict, deque, namedtuple
+import itertools
 import pybullet as p
 import ss_pybullet.utils_noBase as utils
 import ss_pybullet.geometry as geometry
@@ -16,10 +17,15 @@ JOINT_TYPES = {
     p.JOINT_GEAR: 'gear', # 6
 }
 
+def createBody(path, **kwargs):
+    body_id = utils.load_model(path, **kwargs)
+    return Body(body_id)
+
 
 class Body(object):
-    def __init__(self, info, **kwargs):
-        self.id = utils.load_model(info, **kwargs)
+    def __init__(self, bodyID): #info, **kwargs):
+        #self.id = utils.load_model(info, **kwargs)
+        self.id = bodyID
         self.base_link = -1
         self.static_mass = 0
         self.BodyInfo = namedtuple('BodyInfo', ['base_name', 'body_name'])
@@ -235,13 +241,12 @@ class Body(object):
         return zip(*joint_limits)
 
     def is_fixed_base(self):
-        return self.get_mass(self.id) == self.static_mass 
+        return self.get_mass() == self.static_mass 
 
     def get_num_links(self):
         return len(self.links)
 
     def get_adjacent_links(self):
-        # Untested
         adjacent = set()
         for link in self.links: 
             parent = link.get_link_parent()
@@ -250,21 +255,17 @@ class Body(object):
         return adjacent
 
     def get_adjacent_fixed_links(self):
-        # Untested
-        return list(filter(lambda item: not is_movable(body, item[0]),
-                           get_adjacent_links(body)))
+        return list(filter(lambda item: not (item[0].parentJoint).is_movable(),
+                           self.get_adjacent_links()))
 
     def are_links_adjacent(self, link1, link2):
-        # Untested
         return (link1.get_link_parent() == link2) or \
                (link2.get_link_parent() == link1)
 
     def get_all_link_parents(self):
-        # Untested
         return {link: link.get_link_parent() for link in self.links}
 
     def get_all_link_children(self):
-        # Untested
         children = {}
         for child, parent in self.get_all_link_parents().items():
             if parent not in children:
@@ -273,7 +274,6 @@ class Body(object):
         return children
 
     def get_fixed_links(self):
-        # Untested
         edges = defaultdict(list)
         for link, parent in self.get_adjacent_fixed_links():
             edges[link].append(parent)
@@ -292,7 +292,7 @@ class Body(object):
                         cluster.append(next_link)
                         queue.append(next_link)
                         visited.add(next_link)
-            fixed.update(geometry.product(cluster, cluster))
+            fixed.update(itertools.product(cluster, cluster))
         return fixed
 
     def get_relative_pose(self, link1, link2):
@@ -338,13 +338,13 @@ class Body(object):
         link = -1
         print('Link id: {} | Name: {} | Mass: {} | Collision: {} | Visual: {}'.format(
             link, self.get_base_name(), self.get_mass(),
-            len(utils.get_collision_data(self.id, self.base_link)), -1)) # len(get_visual_data(body, link))))
-        for l in self.links:
-            joint = l.parentJointID
-            #XXX fix this
-            joint_name = JOINT_TYPES[get_joint_type(body, joint)] if joint.is_fixed() else get_joint_name(body, joint)
+            len(utils.get_collision_data(self, self.base_link)), -1)) # len(get_visual_data(body, link))))
+
+        for link in self.links:
+            pjoint = link.parentJoint
+            joint_name = JOINT_TYPES[pjoint.get_joint_type()] if pjoint.is_fixed() else pjoint.get_joint_name() 
             print('Link id: {} | Name: {} | Joint: {} | Parent: {} | Mass: {} | Collision: {} | Visual: {}'.format(
-                link, get_link_name(body, link), joint_name,
-                get_link_name(body, get_link_parent(body, link)), get_mass(body, link),
-                len(get_collision_data(body, link)), -1)) # len(get_visual_data(body, link))))
+                link.linkID, link.get_link_name(), joint_name,
+                (link.get_link_parent()).get_link_name(), self.get_mass(link.linkID),
+                len(utils.get_collision_data(self, link.linkID)), -1)) # len(get_visual_data(body, link)))) #XXX move this function from utils
 
