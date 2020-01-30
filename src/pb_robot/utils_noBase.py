@@ -9,12 +9,12 @@ from itertools import product, count
 import numpy as np
 import pybullet as p
 
-import ss_pybullet
-import ss_pybullet.helper as helper
-import ss_pybullet.geometry as geometry
-import ss_pybullet.aabb as aabbs
-import ss_pybullet.constraints as constraints
-import ss_pybullet.meshes as meshes
+import pb_robot
+import pb_robot.helper as helper
+import pb_robot.geometry as geometry
+import pb_robot.aabb as aabbs
+import pb_robot.constraints as constraints
+import pb_robot.meshes as meshes
 # from future_builtins import map, filter
 # from builtins import input # TODO - use future
 try:
@@ -680,7 +680,7 @@ def restore_bullet(filename):
 # Bodies, Joints, Links
 
 def get_bodies():
-    return [ss_pybullet.body.Body(p.getBodyUniqueId(i, physicsClientId=CLIENT))
+    return [pb_robot.body.Body(p.getBodyUniqueId(i, physicsClientId=CLIENT))
             for i in range(p.getNumBodies(physicsClientId=CLIENT))]
 
 def has_body(name):

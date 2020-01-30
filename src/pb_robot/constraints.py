@@ -1,5 +1,5 @@
 from collections import namedtuple
-import ss_pybullet.geometry as geometry
+import pb_robot.geometry as geometry
 import pybullet as p
 
 CLIENT = 0

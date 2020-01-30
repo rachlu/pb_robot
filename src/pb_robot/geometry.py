@@ -2,8 +2,8 @@ from __future__ import print_function
 import math
 import numpy as np
 import pybullet as p
-import ss_pybullet.transformations as transformations
-import ss_pybullet.helper as helper 
+import pb_robot.transformations as transformations
+import pb_robot.helper as helper 
 
 CLIENT = 0
 # Geometry

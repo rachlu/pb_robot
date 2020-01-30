@@ -5,9 +5,9 @@
 import IPython
 import numpy
 import random
-import ss_pybullet
-import ss_pybullet.utils_noBase as utils
-import ss_pybullet.viz as viz
+import pb_robot
+import pb_robot.utils_noBase as utils
+import pb_robot.viz as viz
 
 def GeodesicError(t1, t2):
     """
@@ -18,7 +18,7 @@ def GeodesicError(t1, t2):
     """
     trel = numpy.dot(numpy.linalg.inv(t1), t2)
     trans = numpy.dot(t1[0:3, 0:3], trel[0:3, 3])
-    angle, _, _ = ss_pybullet.transformations.rotation_from_matrix(trel) 
+    angle, _, _ = pb_robot.transformations.rotation_from_matrix(trel) 
     return numpy.hstack((trans, angle))
 
 def GeodesicDistance(t1, t2, r=1.0):
@@ -43,7 +43,7 @@ def main():
     utils.connect(use_gui=True)
     utils.disable_real_time()
 
-    yumi = ss_pybullet.yumi.Yumi() 
+    yumi = pb_robot.yumi.Yumi() 
     utils.set_default_camera()
     #utils.dump_world()
 
@@ -61,15 +61,15 @@ def main():
     for i in xrange(100):
         q = randomConfiguration(yumi)
         pose = yumi.right_arm.ComputeFK(q)
-        full_solved_q = yumi.right_arm.ComputeIK(ss_pybullet.geometry.pose_from_tform(pose))  # edit ComputeIK
+        full_solved_q = yumi.right_arm.ComputeIK(pb_robot.geometry.pose_from_tform(pose))  # edit ComputeIK
         if full_solved_q is None:
             #print("No solution")
             continue
         solved_q = full_solved_q[0:7]
         solved_pose = yumi.right_arm.ComputeFK(solved_q)
         error = GeodesicDistance(pose, solved_pose)
-        second_error = utils.is_pose_close(ss_pybullet.geometry.pose_from_tform(pose), 
-                                           ss_pybullet.geometry.pose_from_tform(solved_pose))
+        second_error = utils.is_pose_close(pb_robot.geometry.pose_from_tform(pose), 
+                                           pb_robot.geometry.pose_from_tform(solved_pose))
         print((error < 0.002) and second_error)
 
     IPython.embed()

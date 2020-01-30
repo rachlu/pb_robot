@@ -5,9 +5,9 @@ from crg_planners.rrt_connect import birrt, direct_path
 
 import numpy as np
 import pybullet as p
-import ss_pybullet.geometry as geometry
-import ss_pybullet.helper as helper
-import ss_pybullet.utils_noBase as utils
+import pb_robot.geometry as geometry
+import pb_robot.helper as helper
+import pb_robot.utils_noBase as utils
 
 PI = np.pi
 CIRCULAR_LIMITS = -PI, PI

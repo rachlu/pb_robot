@@ -1,8 +1,8 @@
 import random
 from collections import namedtuple
-import ss_pybullet.geometry as geometry
+import pb_robot.geometry as geometry
 
-from ss_pybullet.og_util import get_joint_limits, get_joint_position, get_joint_positions, get_distance
+from pb_robot.og_util import get_joint_limits, get_joint_position, get_joint_positions, get_distance
 
 # TODO: lookup robot & tool in dictionary and use if exists
 

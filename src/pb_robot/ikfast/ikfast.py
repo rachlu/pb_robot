@@ -6,10 +6,10 @@ import os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
 
 from itertools import islice
-import ss_pybullet.geometry as geometry
+import pb_robot.geometry as geometry
 
 from .utils import compute_inverse_kinematics
-from ss_pybullet.og_util import get_link_pose, link_from_name, get_link_ancestors, \
+from pb_robot.og_util import get_link_pose, link_from_name, get_link_ancestors, \
     parent_joint_from_link, parent_link_from_joint, prune_fixed_joints, joints_from_names, INF, get_difference_fn, \
     get_joint_positions, get_min_limits, get_max_limits, interval_generator, elapsed_time, randomize, violates_limits, \
     get_length

@@ -3,13 +3,13 @@ import numpy
 import random
 import time
 import pybullet as p
-import ss_pybullet
-import ss_pybullet.utils_noBase as utils
+import pb_robot
+import pb_robot.utils_noBase as utils
 import geometry
 import body
 import helper
 
-from ss_pybullet.ikfast.ikfast import closest_inverse_kinematics, ikfast_inverse_kinematics
+from pb_robot.ikfast.ikfast import closest_inverse_kinematics, ikfast_inverse_kinematics
 
 class Panda(body.Body):
     def __init__(self, **kwargs):
@@ -38,7 +38,7 @@ class PandaArm(object):
 
         self.grabbedRelations = dict()
         self.grabbedObjects = dict()
-        self.ik_info = ss_pybullet.ikfast.utils.IKFastInfo(module_name='franka_panda.ikfast_panda_arm', 
+        self.ik_info = pb_robot.ikfast.utils.IKFastInfo(module_name='franka_panda.ikfast_panda_arm', 
                           base_link='panda_link0',
                           ee_link='panda_link8', 
                           free_joints=['panda_joint7'])
@@ -104,7 +104,7 @@ class PandaArm(object):
 
         obstacles = [b.id for b in utils.get_bodies() if 'panda' not in b.get_name() and b.get_name() not in self.grabbedObjects.keys()]
         attachments = [g.id for g in self.grabbedObjects.values()]
-        collisionfn = ss_pybullet.collisions.get_collision_fn(self.__robot.id, self.jointsID, obstacles, 
+        collisionfn = pb_robot.collisions.get_collision_fn(self.__robot.id, self.jointsID, obstacles, 
                                                          attachments, self_collisions)
 
         # Restore configuration
@@ -120,7 +120,7 @@ class PandaArm(object):
     def GetJacobian(self, q): 
         # Must include finger joints and then remove them
         allq = numpy.append(q, [0, 0]).tolist()
-        (translate, rotate) = ss_pybullet.planning.compute_jacobian(self.__robot, self.eeFrame, positions=allq)
+        (translate, rotate) = pb_robot.planning.compute_jacobian(self.__robot, self.eeFrame, positions=allq)
         t = numpy.array(translate)
         r = numpy.array(rotate)
         jacobian = numpy.hstack((translate, rotate))

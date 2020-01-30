@@ -12,8 +12,8 @@ import pybullet as p
 
 from crg_planners.rrt_connect import birrt, direct_path
 #from ..motion.motion_planners.rrt_connect import birrt, direct_path
-import ss_pybullet.helper as helper
-import ss_pybullet.geometry as geometry
+import pb_robot.helper as helper
+import pb_robot.geometry as geometry
 
 # from future_builtins import map, filter
 # from builtins import input # TODO - use future

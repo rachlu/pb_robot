@@ -5,8 +5,8 @@
 import IPython
 import numpy
 import os
-import ss_pybullet
-import ss_pybullet.utils_noBase as utils
+import pb_robot
+import pb_robot.utils_noBase as utils
 
 def testIK(robot):
     total = 0
@@ -15,7 +15,7 @@ def testIK(robot):
 
         q = robot.arm.randomConfiguration()
         pose = robot.arm.ComputeFK(q)
-        #ss_pybullet.viz.draw_pose(ss_pybullet.geometry.pose_from_tform(pose), length=0.5, width=10)
+        #pb_robot.viz.draw_pose(pb_robot.geometry.pose_from_tform(pose), length=0.5, width=10)
         #raw_input("GO?")
 
         full_solved_q = robot.arm.ComputeIK(pose)
@@ -25,9 +25,9 @@ def testIK(robot):
             continue
         solved_q = full_solved_q[0:7]
         solved_pose = robot.arm.ComputeFK(solved_q)
-        error = ss_pybullet.geometry.GeodesicDistance(pose, solved_pose)
-        second_error = utils.is_pose_close(ss_pybullet.geometry.pose_from_tform(pose), 
-                                           ss_pybullet.geometry.pose_from_tform(solved_pose))
+        error = pb_robot.geometry.GeodesicDistance(pose, solved_pose)
+        second_error = utils.is_pose_close(pb_robot.geometry.pose_from_tform(pose), 
+                                           pb_robot.geometry.pose_from_tform(solved_pose))
         #robot.arm.SetJointValues(full_solved_q)
         total += (error < 0.002) and second_error
         #raw_input("Next?")
@@ -37,16 +37,16 @@ def main():
     utils.connect(use_gui=True)
     utils.disable_real_time()
 
-    robot = ss_pybullet.panda.Panda() 
-    objects_path = ss_pybullet.helper.getDirectory()
+    robot = pb_robot.panda.Panda() 
+    objects_path = pb_robot.helper.getDirectory()
     floor_file = os.path.join(objects_path, 'furniture/short_floor.urdf')
-    floor = ss_pybullet.body.createBody(floor_file)
+    floor = pb_robot.body.createBody(floor_file)
     utils.set_default_camera()
     #utils.dump_world()
 
     robot.arm.SetJointValues([2, 0, 0, 0, 0, 0, 0])
 
-    #ss_pybullet.viz.draw_pose(target_p, length=0.5, width=10)
+    #pb_robot.viz.draw_pose(target_p, length=0.5, width=10)
 
     qs = [[0, 0, 0, 0, 0, 0, 0],
           [1, 0, 0, 0, 0, 0, 0]]

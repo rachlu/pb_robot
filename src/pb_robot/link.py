@@ -1,7 +1,7 @@
 from collections import namedtuple
 import pybullet as p
-import ss_pybullet.utils_noBase as utils
-import ss_pybullet.geometry as geometry
+import pb_robot.utils_noBase as utils
+import pb_robot.geometry as geometry
 
 class Link(object):
     def __init__(self, body, linkID):

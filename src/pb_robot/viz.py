@@ -2,8 +2,8 @@ import math
 from itertools import product, combinations
 import pybullet as p
 import numpy as np
-import ss_pybullet.geometry as geometry
-import ss_pybullet.utils_noBase as utils
+import pb_robot.geometry as geometry
+import pb_robot.utils_noBase as utils
 
 RED = (1, 0, 0, 1)
 GREEN = (0, 1, 0, 1)

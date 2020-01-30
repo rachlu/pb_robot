@@ -2,7 +2,7 @@ from collections import namedtuple
 from itertools import product, combinations
 import numpy as np
 import pybullet as p
-import ss_pybullet.helper as helper
+import pb_robot.helper as helper
 
 MAX_DISTANCE = 0
 CLIENT = 0
