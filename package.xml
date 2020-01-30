@@ -1,13 +1,13 @@
 <?xml version="1.0"?>
 <package>
-    <name>ss_pybullet</name>
+    <name>pb_robot</name>
     <version>0.0.0</version>
     <description>
      Pybullet Infrastructure
     </description>
     <!--Add in repo once its set up-->
-    <url type="repository">https://github.com/rachelholladay/ss-pybullet/</url>
-    <maintainer email="caelan@mit.edu">Caelan Reed Garrett</maintainer>
+    <url type="repository">https://github.com/rachelholladay/pb_robot/</url>
+    <maintainer email="rhollada@mit.edu">Rachel Holladay</maintainer>
     <author email="caelan@mit.edu">Caelan Reed Garrett</author>
     <license>BSD</license>
     <buildtool_depend>catkin</buildtool_depend>
