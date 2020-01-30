@@ -387,7 +387,7 @@ def compute_jacobian(robot, link, positions=None):
     assert len(joints) == len(positions)
     velocities = [0.0] * len(positions)
     accelerations = [0.0] * len(positions)
-    translate, rotate = p.calculateJacobian(robot, link, geometry.unit_point(), positions,
+    translate, rotate = p.calculateJacobian(robot.id, link.linkID, geometry.unit_point(), positions,
                                             velocities, accelerations, physicsClientId=CLIENT)
     #movable_from_joints(robot, joints)
     return list(zip(*translate)), list(zip(*rotate)) # len(joints) x 3

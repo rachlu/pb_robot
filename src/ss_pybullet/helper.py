@@ -11,6 +11,24 @@ INF = np.inf
 PI = np.pi
 SEPARATOR = '\n' + 50*'-' + '\n'
 
+def getDirectory():
+    '''Get the file path for the location of kinbody
+    @return object_path (string) Path to objects folder'''
+    from catkin.find_in_workspaces import find_in_workspaces
+    package_name = 'mcube_objects'
+    directory = 'data'
+    objects_path = find_in_workspaces(
+        search_dirs=['share'],
+        project=package_name,
+        path=directory,
+        first_match_only=True)
+    if len(objects_path) == 0:
+        raise RuntimeError('Can\'t find directory {}/{}'.format(
+            package_name, directory))
+    else:
+        objects_path = objects_path[0]
+    return objects_path
+
 def print_separator(n=50):
     print('\n' + n*'-' + '\n')
 

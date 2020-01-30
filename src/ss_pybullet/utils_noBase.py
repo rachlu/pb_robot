@@ -29,6 +29,7 @@ UNBOUNDED_LIMITS = -INF, INF
 DEFAULT_TIME_STEP = 1./240. # seconds
 BASE_LINK = -1
 STATIC_MASS = 0
+MAX_DISTANCE = 0
 
 #####################################
 
@@ -1166,9 +1167,6 @@ def set_color(body, color, link=BASE_LINK, shape_index=-1):
 
 # Collision
 
-#MAX_DISTANCE = 1e-3
-MAX_DISTANCE = 0.
-
 def contact_collision():
     step_simulation()
     return len(p.getContactPoints(physicsClientId=CLIENT)) != 0
@@ -1177,65 +1175,10 @@ ContactResult = namedtuple('ContactResult', ['contactFlag', 'bodyUniqueIdA', 'bo
                                              'linkIndexA', 'linkIndexB', 'positionOnA', 'positionOnB',
                                              'contactNormalOnB', 'contactDistance', 'normalForce'])
 
-def pairwise_link_collision(body1, link1, body2, link2=BASE_LINK, max_distance=MAX_DISTANCE): # 10000
-    return len(p.getClosestPoints(bodyA=body1.id, bodyB=body2.id, distance=max_distance,
-                                  linkIndexA=link1.linkID, linkIndexB=link2.linkID,
-                                  physicsClientId=CLIENT)) != 0 # getContactPoints
-
 def flatten_links(body, links=None):
     if links is None:
         links = body.get_all_links()
     return {(body, frozenset([link])) for link in links}
-
-def expand_links(body):
-    body, links = body if isinstance(body, tuple) else (body, None)
-    if links is None:
-        links = body.get_all_links()
-    return body, links
-
-def any_link_pair_collision(body1, links1, body2, links2=None, **kwargs):
-    # TODO: this likely isn't needed anymore
-    if links1 is None:
-        links1 = body1.get_all_links()
-    if links2 is None:
-        links2 = body2.get_all_links()
-    for link1, link2 in product(links1, links2):
-        if (body1 == body2) and (link1 == link2):
-            continue
-        if pairwise_link_collision(body1, link1, body2, link2, **kwargs):
-            return True
-    return False
-
-def body_collision(body1, body2, max_distance=MAX_DISTANCE): # 10000
-    # TODO: confirm that this doesn't just check the base link
-    return len(p.getClosestPoints(bodyA=body1.id, bodyB=body2.id, distance=max_distance,
-                                  physicsClientId=CLIENT)) != 0 # getContactPoints`
-
-def pairwise_collision(body1, body2, **kwargs):
-    if isinstance(body1, tuple) or isinstance(body2, tuple):
-        body1, links1 = expand_links(body1)
-        body2, links2 = expand_links(body2)
-        return any_link_pair_collision(body1, links1, body2, links2, **kwargs)
-    return body_collision(body1, body2, **kwargs)
-
-#def single_collision(body, max_distance=1e-3):
-#    return len(p.getClosestPoints(body, max_distance=max_distance)) != 0
-
-def single_collision(body1, **kwargs):
-    for body2 in get_bodies():
-        if (body1 != body2) and pairwise_collision(body1, body2, **kwargs):
-            return True
-    return False
-
-def link_pairs_collision(body1, links1, body2, links2=None, **kwargs):
-    if links2 is None:
-        links2 = body2.get_all_links()
-    for link1, link2 in product(links1, links2):
-        if (body1 == body2) and (link1 == link2):
-            continue
-        if pairwise_link_collision(body1, link1, body2, link2, **kwargs):
-            return True
-    return False
 
 #####################################
 
@@ -1559,6 +1502,7 @@ def inverse_kinematics_helper(robot, link, target_pose, null_space=None):
                                                       physicsClientId=CLIENT)
     else:
         kinematic_conf = p.calculateInverseKinematics(robot.id, link.linkID, target_point, target_quat, physicsClientId=CLIENT)
+
     if (kinematic_conf is None) or any(map(math.isnan, kinematic_conf)):
         return None
     return kinematic_conf
@@ -1569,27 +1513,23 @@ def is_pose_close(pose, target_pose, pos_tolerance=1e-3, ori_tolerance=1e-3*np.p
     if (target_point is not None) and not np.allclose(point, target_point, atol=pos_tolerance, rtol=0):
         return False
     if (target_quat is not None) and not np.allclose(quat, target_quat, atol=ori_tolerance, rtol=0):
-        # TODO: account for quaternion redundancy
         return False
     return True
 
 def inverse_kinematics(robot, link, target_pose, max_iterations=200, custom_limits={}, **kwargs):
     movable_joints = robot.get_movable_joints()
     for iterations in range(max_iterations):
-        # TODO: stop is no progress
-        # TODO: stop if collision or invalid joint limits
         kinematic_conf = inverse_kinematics_helper(robot, link, target_pose)
         if kinematic_conf is None:
-            return None
+            return None 
         robot.set_joint_positions(movable_joints, kinematic_conf)
+        # Check if accurate IK solution
         if is_pose_close(link.get_link_pose(), target_pose, **kwargs):
-            break
-    else:
-        return None
-    lower_limits, upper_limits = robot.get_custom_limits(movable_joints, custom_limits)
-    if not helper.all_between(lower_limits, kinematic_conf, upper_limits):
-        return None
-    return kinematic_conf
+            # Check if within joint limits
+            lower_limits, upper_limits = robot.get_custom_limits(movable_joints, custom_limits)
+            if helper.all_between(lower_limits, kinematic_conf, upper_limits):
+                return kinematic_conf
+    return None
 
 #####################################
 
@@ -1715,57 +1655,3 @@ def sample_edge_pose(polygon, world_from_surface, mesh):
         surface_from_origin = geometry.Pose(point, geometry.Euler(yaw=theta))
         yield geometry.multiply(world_from_surface, surface_from_origin, origin_from_base)
 
-# TODO: factor out things that don't depend on pybullet
-
-#####################################
-
-# https://github.com/kohterai/OBJ-Parser
-
-"""
-def readWrl(filename, name='wrlObj', scale=1.0, color='black'):
-    def readOneObj():
-        vl = []
-        while True:
-            line = fl.readline()
-            split = line.split(',')
-            if len(split) != 2:
-                break
-            split = split[0].split()
-            if len(split) == 3:
-                vl.append(np.array([scale*float(x) for x in split]+[1.0]))
-            else:
-                break
-        print '    verts', len(vl),
-        verts = np.vstack(vl).T
-        while line.split()[0] != 'coordIndex':
-            line = fl.readline()
-        line = fl.readline()
-        faces = []
-        while True:
-            line = fl.readline()
-            split = line.split(',')
-            if len(split) > 3:
-                faces.append(np.array([int(x) for x in split[:3]]))
-            else:
-                break
-        print 'faces', len(faces)
-        return Prim(verts, faces, hu.Pose(0,0,0,0), None,
-                    name=name+str(len(prims)))
-
-    fl = open(filename)
-    assert fl.readline().split()[0] == '#VRML', 'Not VRML file?'
-    prims = []
-    while True:
-        line = fl.readline()
-        if not line: break
-        split = line.split()
-        if not split or split[0] != 'point':
-            continue
-        else:
-            print 'Object', len(prims)
-            prims.append(readOneObj())
-    # Have one "part" so that shadows are simpler
-    part = Shape(prims, None, name=name+'_part')
-    # Keep color only in top entry.
-    return Shape([part], None, name=name, color=color)
-"""

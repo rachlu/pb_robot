@@ -1921,6 +1921,8 @@ def pairwise_collision(body1, body2, **kwargs):
         body1, links1 = expand_links(body1)
         body2, links2 = expand_links(body2)
         return any_link_pair_collision(body1, links1, body2, links2, **kwargs)
+    print(body1)
+    print(body2)
     return body_collision(body1, body2, **kwargs)
 
 #def single_collision(body, max_distance=1e-3):
@@ -2128,7 +2130,7 @@ def get_collision_fn(body, joints, obstacles, attachments, self_collisions, disa
     # TODO: maybe prune the link adjacent to the robot
     # TODO: test self collision with the holding
     def collision_fn(q):
-        if not helper.all_between(lower_limits, q, upper_limits):
+        if not all_between(lower_limits, q, upper_limits):
             #print('Joint limits violated')
             return True
         set_joint_positions(body, joints, q)

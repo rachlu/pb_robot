@@ -64,6 +64,9 @@ class Body(object):
     def get_pose(self):
         return p.getBasePositionAndOrientation(self.id, physicsClientId=CLIENT)
 
+    def get_transform(self):
+        return geometry.tform_from_pose(self.get_pose())
+
     def get_point(self):
         return self.get_pose()[0]
 
@@ -79,6 +82,9 @@ class Body(object):
     def set_pose(self, pose):
         (point, quat) = pose
         p.resetBasePositionAndOrientation(self.id, point, quat, physicsClientId=CLIENT)
+
+    def set_transform(self, transform):
+        self.set_pose(geometry.pose_from_tform(transform))
 
     def set_point(self, point):
         self.set_pose((point, self.get_quat()))

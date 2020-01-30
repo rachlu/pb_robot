@@ -324,3 +324,30 @@ def grow_polygon(vertices, radius, n=8):
             for theta in np.linspace(0, 2*np.pi, num=n, endpoint=False):
                 points.append(vertex + radius*unit_from_theta(theta))
     return convex_hull(points).vertices
+
+
+
+#### Distance metrics
+def GeodesicError(t1, t2):
+    """
+    Computes the error in global coordinates between two transforms.
+    @param t1 current transform
+    @param t2 goal transform
+    @return a 4-vector of [dx, dy, dz, solid angle]
+    """
+    trel = np.dot(np.linalg.inv(t1), t2)
+    trans = np.dot(t1[0:3, 0:3], trel[0:3, 3])
+    angle, _, _ = transformations.rotation_from_matrix(trel)
+    return np.hstack((trans, angle))
+
+def GeodesicDistance(t1, t2, r=1.0):
+    """
+    Computes the geodesic distance between two transforms
+    @param t1 current transform
+    @param t2 goal transform
+    @param r in units of meters/radians converts radians to meters
+    """
+    error = GeodesicError(t1, t2)
+    error[3] = r * error[3]
+    return np.linalg.norm(error)
+

@@ -2,10 +2,8 @@ from collections import defaultdict, deque, namedtuple
 import numpy as np
 import pybullet as p
 import ss_pybullet.utils_noBase as utils
-import primitives
 import geometry
 import body
-from .pr2_utils import get_top_grasps
 
 #TODO generalize such that this is robot class, store robot information separately
 
@@ -27,21 +25,6 @@ class Yumi(body.Body):
         self.left_hand = self.link_from_name(self.left_hand_name)
         self.right_arm = YumiArm(self.id, self.right_joints, self.right_hand_name)
         self.left_arm = YumiArm(self.id, self.left_joints, self.left_hand_name)
-
-        self.grasp_info = {
-            'top': utils.GraspInfo(lambda body: get_top_grasps(body, under=True, tool_pose=geometry.Pose(), max_width=np.inf, grasp_length=0),
-                             approach_pose=geometry.Pose(0.1*geometry.Point(z=1))),
-        }
-
-    def get_grasp_gen(self, hand, grasp_name):
-        grasp_info = self.grasp_info[grasp_name]
-        def gen(body):
-            grasp_poses = grasp_info.get_grasps(body)
-            for grasp_pose in grasp_poses:
-                body_grasp = primitives.BodyGrasp(body, grasp_pose, grasp_info.approach_pose,
-                                                  self, hand)
-                yield (body_grasp,)
-        return gen
 
 class YumiArm(object):
     def __init__(self, bodyID, joints, handName):
