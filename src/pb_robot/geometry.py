@@ -337,7 +337,9 @@ def GeodesicError(t1, t2):
     """
     trel = np.dot(np.linalg.inv(t1), t2)
     trans = np.dot(t1[0:3, 0:3], trel[0:3, 3])
-    angle, _, _ = transformations.rotation_from_matrix(trel)
+    #omega = openravepy.axisAngleFromRotationMatrix(trel[0:3, 0:3]) 
+    omega, _, _ = transformations.rotation_from_matrix(trel)
+    angle = np.linalg.norm(omega)
     return np.hstack((trans, angle))
 
 def GeodesicDistance(t1, t2, r=1.0):

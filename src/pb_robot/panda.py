@@ -25,6 +25,9 @@ class Panda(body.Body):
         self.arm_joints = [self.joint_from_name(n) for n in self.arm_joint_names]
         self.arm = PandaArm(self.id, self.arm_joints, 'panda_hand')
 
+        self.birrt = pb_robot.planners.BiRRTPlanner(self)
+        self.snap = pb_robot.planners.SnapPlanner(self)
+
 
 class PandaArm(object):
     def __init__(self, bodyID, joints, handName):
@@ -48,7 +51,7 @@ class PandaArm(object):
     def GetJointValues(self):
         return self.__robot.get_joint_positions(self.joints)
     
-    def SetJointValues(self, q):
+    def SetJointValues(self, q, joints=None):
         self.__robot.set_joint_positions(self.joints, q)
 
         #If exists grabbed object, update its position too
@@ -91,10 +94,20 @@ class PandaArm(object):
 
     def ComputeIK(self, transform, seed_q=None):
         pose = geometry.pose_from_tform(transform)
-        q = next(ikfast_inverse_kinematics(self.__robot.id, self.ik_info, 
-                                           self.eeFrame.linkID, pose, max_time=0.05), None)
-        #q = next(closest_inverse_kinematics(self.__robot.id, self.ik_info, self.hand.linkID,
-        #                                        pose, max_distance=0.05, max_time=0.05), None)
+
+        if seed_q is None:
+            q = next(ikfast_inverse_kinematics(self.__robot, self.ik_info, 
+                                           self.eeFrame, pose, max_time=0.05), None)
+        else:
+            # Seeded IK uses the current ik value, so set that and then reset change
+            old_q = self.GetJointValues()
+            self.SetJointValues(seed_q)
+            q = next(closest_inverse_kinematics(self.__robot, self.ik_info, self.eeFrame,
+                                                pose, max_distance=0.2, max_time=0.05), None)
+            self.SetJointValues(old_q)
+            # If no ik, fall back on unseed version
+            if q is None:
+                return self.ComputeIK(transform)
         return q 
 
     def IsCollisionFree(self, q, self_collisions=True):
@@ -102,14 +115,21 @@ class PandaArm(object):
         oldq = self.GetJointValues()
         self.SetJointValues(oldq)
 
-        obstacles = [b.id for b in utils.get_bodies() if 'panda' not in b.get_name() and b.get_name() not in self.grabbedObjects.keys()]
-        attachments = [g.id for g in self.grabbedObjects.values()]
-        collisionfn = pb_robot.collisions.get_collision_fn(self.__robot.id, self.jointsID, obstacles, 
+        #obstacles = [b.id for b in utils.get_bodies() if 'panda' not in b.get_name() and b.get_name() not in self.grabbedObjects.keys()]
+        #attachments = [g.id for g in self.grabbedObjects.values()]
+        #collisionfn = pb_robot.collisions.get_collision_fn(self.__robot.id, self.jointsID, obstacles, 
+        #                                                 attachments, self_collisions)
+
+        obstacles = [b for b in utils.get_bodies() if 'panda' not in b.get_name() and b.get_name() not in self.grabbedObjects.keys()]
+        attachments = [g for g in self.grabbedObjects.values()]
+        collisionfn = pb_robot.collisions.get_collision_fn(self.__robot, self.joints, obstacles, 
                                                          attachments, self_collisions)
 
+        # Evaluate if in collision
+        val = not collisionfn(q)
         # Restore configuration
         self.SetJointValues(oldq)
-        return not collisionfn(q)
+        return val
 
     def ExecutePath(self, path, timestep=0.05):
         # Will need to generalize with more control methods. This copies from Caelan's command 

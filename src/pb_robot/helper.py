@@ -11,6 +11,12 @@ INF = np.inf
 PI = np.pi
 SEPARATOR = '\n' + 50*'-' + '\n'
 
+def randomize(sequence): # TODO: bisect
+    indices = range(len(sequence))
+    random.shuffle(indices)
+    for i in indices:
+        yield sequence[i]
+
 def getDirectory():
     '''Get the file path for the location of kinbody
     @return object_path (string) Path to objects folder'''

@@ -2262,6 +2262,13 @@ def halton_generator(d):
 def unit_generator(d, use_halton=False):
     return halton_generator(d) if use_halton else uniform_generator(d)
 
+def interval_generator(lower, upper, **kwargs):
+    assert len(lower) == len(upper)
+    assert np.less_equal(lower, upper).all()
+    if np.equal(lower, upper).all():
+        return iter([lower])
+    return (weights*lower + (1-weights)*upper for weights in unit_generator(d=len(lower), **kwargs))
+
 def get_sample_fn(body, joints, custom_limits={}, **kwargs):
     generator = unit_generator(len(joints), **kwargs)
     lower_limits, upper_limits = get_custom_limits(body, joints, custom_limits, circular_limits=CIRCULAR_LIMITS)

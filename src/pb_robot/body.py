@@ -61,6 +61,13 @@ class Body(object):
             del utils.INFO_FROM_BODY[CLIENT, self.id]
         return p.removeBody(self.id, physicsClientId=CLIENT)
 
+    def set_color(self, color):
+        p.changeVisualShape(self.id, -1, rgbaColor=color)
+
+    def set_texture(self, textureFile):
+        texture_id = p.loadTexture(textureFile)
+        p.changeVisualShape(self.id, -1, textureUniqueId=texture_id)
+
     def get_pose(self):
         return p.getBasePositionAndOrientation(self.id, physicsClientId=CLIENT)
 
@@ -125,7 +132,8 @@ class Body(object):
 
     def link_from_name(self, name):
         if name == self.get_base_name():
-            return self.base_link
+            #return self.base_link
+            return Link(self, self.base_link)
         for link in self.links:
             if link.get_link_name() == name:
                 return link

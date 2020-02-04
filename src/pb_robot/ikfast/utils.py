@@ -2,15 +2,9 @@ import random
 from collections import namedtuple
 import pb_robot.geometry as geometry
 
-from pb_robot.og_util import get_joint_limits, get_joint_position, get_joint_positions, get_distance
-
-# TODO: lookup robot & tool in dictionary and use if exists
-
 IKFastInfo = namedtuple('IKFastInfo', ['module_name', 'base_link', 'ee_link', 'free_joints'])
-
 USE_ALL = False
 USE_CURRENT = None
-
 
 def compute_forward_kinematics(fk_fn, conf):
     pose = fk_fn(list(conf))
@@ -33,9 +27,9 @@ def compute_inverse_kinematics(ik_fn, pose, sampled=[]):
 
 def get_ik_limits(robot, joint, limits=USE_ALL):
     if limits is USE_ALL:
-        return get_joint_limits(robot, joint)
+        return robot.get_joint_limits(joint)
     elif limits is USE_CURRENT:
-        value = get_joint_position(robot, joint)
+        value = robot.get_joint_position(joint)
         return value, value
     return limits
 
@@ -46,7 +40,7 @@ def select_solution(body, joints, solutions, nearby_conf=USE_ALL, **kwargs):
     if nearby_conf is USE_ALL:
         return random.choice(solutions)
     if nearby_conf is USE_CURRENT:
-        nearby_conf = get_joint_positions(body, joints)
+        nearby_conf = body.get_joint_positions(joints)
     # TODO: sort by distance before collision checking
     # TODO: search over neighborhood of sampled joints when nearby_conf != None
-    return min(solutions, key=lambda conf: get_distance(nearby_conf, conf, **kwargs))
+    return min(solutions, key=lambda conf: geometry.get_distance(nearby_conf, conf, **kwargs))

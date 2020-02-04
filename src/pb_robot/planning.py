@@ -37,6 +37,13 @@ def get_sample_fn(body, joints, custom_limits={}, **kwargs):
         return tuple(next(generator) * limits_extents + np.array(lower_limits))
     return fn
 
+def interval_generator(lower, upper, **kwargs):
+    assert len(lower) == len(upper)
+    assert np.less_equal(lower, upper).all()
+    if np.equal(lower, upper).all():
+        return iter([lower])
+    return (weights*lower + (1-weights)*upper for weights in unit_generator(d=len(lower), **kwargs))
+
 def get_halton_sample_fn(body, joints, **kwargs):
     return get_sample_fn(body, joints, use_halton=True, **kwargs)
 

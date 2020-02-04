@@ -56,8 +56,12 @@ class Link(object):
         return link_state.worldLinkFramePosition, link_state.worldLinkFrameOrientation
 
     def get_link_children(self):
-        children = self.body.get_all_link_children() 
-        return children.get(self, []) 
+        children = self.body.get_all_link_children()
+        for c in children.keys():
+            if c.linkID == self.linkID:
+                return children[c]
+        return []
+        #return children.get(self, []) 
 
     def get_link_ancestors(self):
         parent = self.get_link_parent()
