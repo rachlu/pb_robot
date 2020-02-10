@@ -338,7 +338,13 @@ def GeodesicError(t1, t2):
     trel = np.dot(np.linalg.inv(t1), t2)
     trans = np.dot(t1[0:3, 0:3], trel[0:3, 3])
     #omega = openravepy.axisAngleFromRotationMatrix(trel[0:3, 0:3]) 
-    omega, _, _ = transformations.rotation_from_matrix(trel)
+    # XXX This is hack for now. Sometimes we get an improper rotation matrix
+    # with a determinant of -1 instead of 1. We negate it to get a 
+    # proper rotation matrix but more investigation is needed.
+    try:
+        omega, _, _ = transformations.rotation_from_matrix(trel)
+    except:
+        omega, _, _ = transformations.rotation_from_matrix(-trel)
     angle = np.linalg.norm(omega)
     return np.hstack((trans, angle))
 
