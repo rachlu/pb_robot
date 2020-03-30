@@ -45,14 +45,50 @@ Also, most of the functionality is treating PyBullet as a kinematic simulation, 
 
 ## Example Usage
 
-(ADD!) Walk through a simple example (create panda, floor and object, get some properties). Coming soon: Example with grasp tsr + planning
+Below is `scripts/example_panda.py` to show some basic functionality:
+
+```
+# Launch pybullet
+utils.connect(use_gui=True)
+utils.disable_real_time()
+utils.set_default_camera()
+
+# Create robot object 
+robot = pb_robot.panda.Panda()
+
+# Add floor object 
+objects_path = pb_robot.helper.getDirectory()
+floor_file = os.path.join(objects_path, 'furniture/short_floor.urdf')
+floor = pb_robot.body.createBody(floor_file)
+
+# Example function on body object
+print floor.get_transform()
+
+# Example functions over robot arm
+q = robot.arm.GetJointValues()
+pose = robot.arm.ComputeFK(q)
+pose[2, 3] -= 0.1
+pb_robot.viz.draw_pose(pb_robot.geometry.pose_from_tform(pose), length=0.5, width=10)
+newq = robot.arm.ComputeIK(pose)
+if newq is not None:
+    raw_input("Move to desired pose?")
+    robot.arm.SetJointValues(newq)
+
+IPython.embed()
+
+# Close out Pybullet
+utils.wait_for_user()
+utils.disconnect()             
+```
+
+I'll soon add an example using TSRs and BiRRT for grasping a block. 
 
 ## Upcoming To Dos
 
 There is a lot of development to do. Namely I'm planning on: 
 * Further cleaning up / breakup functionality from forked code base
 * Adding more documentation (only `src/pb_robot/panda.py` has the level of documention I'm happy with)
-* Integrating in control methods and use of dynamics
+* Integrating in control methods and use of dynamics (under development in `scripts/controlExperiments.py`)
 * Adding more planners (right now its just snap and birrt) and possibly integrating OMPL
 * Keeping generic items in `pb_robot` and breaking out robot specific items (ik function, robot models, TSRs, etc) into robot specific repos, i.e. `pb_panda`, `pb_yumi`, `pb_movo`, etc. As part of this any non-robot models would get moved to the [object's repo](https://github.com/mcubelab/mcube_objects).
 * Further syncing the panda development with the [real robot side repo](https://github.com/rachelholladay/franka_ros_interface) I'm developing in tandem. 
