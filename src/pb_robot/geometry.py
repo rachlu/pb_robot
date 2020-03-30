@@ -153,6 +153,15 @@ def quat_angle_between(quat0, quat1): # quaternion_slerp
     #angle = math.acos(delta[-1])
     return angle
 
+def quatToAxisAngle(quat):
+    # https://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToAngle/index.htm
+    angle = 2 * math.acos(quat[0])
+    x = quat[1] / math.sqrt(1 - (quat[0]*quat[0]))
+    y = quat[2] / math.sqrt(1 - (quat[0]*quat[0]))
+    z = quat[3] / math.sqrt(1 - (quat[0]*quat[0]))
+    return angle, [x, y, z]
+
+
 def get_position_waypoints(start_point, direction, quat, step_size=0.01):
     distance = get_length(direction)
     unit_direction = get_unit_vector(direction)
