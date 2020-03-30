@@ -9,6 +9,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/link0.dae"/>
       </geometry>
+      <material name="panda_white"/>
     </visual>
     <collision>
       <geometry>
@@ -21,6 +22,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/link1.dae"/>
       </geometry>
+      <material name="panda_white"/>
     </visual>
     <collision>
       <geometry>
@@ -34,6 +36,7 @@
     <parent link="panda_link0"/>
     <child link="panda_link1"/>
     <axis xyz="0 0 1"/>
+    <dynamics friction="10.0"/>
     <limit effort="87" lower="-2.8973" upper="2.8973" velocity="2.1750"/>
   </joint>
   <link name="panda_link2">
@@ -41,6 +44,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/link2.dae"/>
       </geometry>
+      <material name="panda_white"/>
     </visual>
     <collision>
       <geometry>
@@ -54,6 +58,7 @@
     <parent link="panda_link1"/>
     <child link="panda_link2"/>
     <axis xyz="0 0 1"/>
+    <dynamics friction="10.0"/>
     <limit effort="87" lower="-1.7628" upper="1.7628" velocity="2.1750"/>
   </joint>
   <link name="panda_link3">
@@ -61,6 +66,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/link3.dae"/>
       </geometry>
+      <material name="panda_white"/>
     </visual>
     <collision>
       <geometry>
@@ -74,6 +80,7 @@
     <parent link="panda_link2"/>
     <child link="panda_link3"/>
     <axis xyz="0 0 1"/>
+    <dynamics friction="10.0"/>
     <limit effort="87" lower="-2.8973" upper="2.8973" velocity="2.1750"/>
   </joint>
   <link name="panda_link4">
@@ -81,6 +88,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/link4.dae"/>
       </geometry>
+      <material name="panda_white"/>
     </visual>
     <collision>
       <geometry>
@@ -94,6 +102,7 @@
     <parent link="panda_link3"/>
     <child link="panda_link4"/>
     <axis xyz="0 0 1"/>
+    <dynamics friction="10.0"/>
     <limit effort="87" lower="-3.0718" upper="-0.0698" velocity="2.1750"/>
   </joint>
   <link name="panda_link5">
@@ -101,6 +110,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/link5.dae"/>
       </geometry>
+      <material name="panda_white"/>
     </visual>
     <collision>
       <geometry>
@@ -114,6 +124,7 @@
     <parent link="panda_link4"/>
     <child link="panda_link5"/>
     <axis xyz="0 0 1"/>
+    <dynamics friction="10.0"/>
     <limit effort="12" lower="-2.8973" upper="2.8973" velocity="2.6100"/>
   </joint>
   <link name="panda_link6">
@@ -121,6 +132,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/link6.dae"/>
       </geometry>
+      <material name="panda_white"/>
     </visual>
     <collision>
       <geometry>
@@ -134,6 +146,7 @@
     <parent link="panda_link5"/>
     <child link="panda_link6"/>
     <axis xyz="0 0 1"/>
+    <dynamics friction="10.0"/>
     <limit effort="12" lower="-0.0175" upper="3.7525" velocity="2.6100"/>
   </joint>
   <link name="panda_link7">
@@ -141,6 +154,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/link7.dae"/>
       </geometry>
+      <material name="panda_white"/>
     </visual>
     <collision>
       <geometry>
@@ -154,6 +168,7 @@
     <parent link="panda_link6"/>
     <child link="panda_link7"/>
     <axis xyz="0 0 1"/>
+    <dynamics friction="10.0"/>
     <limit effort="12" lower="-2.8973" upper="2.8973" velocity="2.6100"/>
   </joint>
   <link name="panda_link8"/>
@@ -173,6 +188,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/hand.dae"/>
       </geometry>
+      <material name="panda_white"/>
     </visual>
     <collision>
       <geometry>
@@ -185,6 +201,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/finger.dae"/>
       </geometry>
+      <material name="panda_grey"/>
     </visual>
     <collision>
       <geometry>
@@ -198,6 +215,7 @@
       <geometry>
         <mesh filename="package://franka_description/meshes/visual/finger.dae"/>
       </geometry>
+      <material name="panda_grey"/>
     </visual>
     <collision>
       <origin rpy="0 0 3.14159265359" xyz="0 0 0"/>
@@ -228,4 +246,10 @@
     <parent link="panda_link8"/>
     <child link="tool_link"/>
   </joint>
+  <material name="panda_white">
+    <color rgba="1. 1. 1. 1."/>
+  </material>
+  <material name="panda_grey">
+    <color rgba="0.5 0.5 0.5 1."/>
+  </material>
 </robot>
