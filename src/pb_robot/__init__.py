@@ -2,6 +2,8 @@ import utils_noBase
 import body
 import planning
 import transformations
+import placements
+import vobj
 import viz
 import collisions
 import panda

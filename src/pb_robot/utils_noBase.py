@@ -13,7 +13,7 @@ import pb_robot
 import pb_robot.helper as helper
 import pb_robot.geometry as geometry
 import pb_robot.aabb as aabbs
-import pb_robot.constraints as constraints
+#import pb_robot.constraints as constraints
 import pb_robot.meshes as meshes
 # from future_builtins import map, filter
 # from builtins import input # TODO - use future
@@ -209,7 +209,7 @@ def load_pybullet(filename, fixed_base=False, scale=1., **kwargs):
             body = p.loadBullet(filename, physicsClientId=CLIENT)
         elif filename.endswith('.obj'):
             # TODO: fixed_base => mass = 0?
-            body = create_obj(filename, scale=scale, **kwargs)
+            body = create_obj(filename, scale=scale, *kwargs)
         else:
             raise ValueError(filename)
     INFO_FROM_BODY[CLIENT, body] = ModelInfo(None, filename, fixed_base, scale)
@@ -239,14 +239,12 @@ def get_model_path(rel_path): # TODO: add to search path
     directory = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(directory, rel_path)
 
-def load_model(rel_path, pose=None, **kwargs):
+def load_model(rel_path, **kwargs):
     # TODO: error with loadURDF when loading MESH visual and CYLINDER collision
     abs_path = get_model_path(rel_path)
     add_data_path()
     #with LockRenderer():
     body = load_pybullet(abs_path, **kwargs)
-    if pose is not None:
-        body.set_pose(pose)
     return body
 
 #####################################
@@ -1371,11 +1369,20 @@ def end_effector_from_body(body_pose, grasp_pose):
 def approach_from_grasp(approach_pose, end_effector_pose):
     return geometry.multiply(approach_pose, end_effector_pose)
 
+ConstraintInfo = namedtuple('ConstraintInfo', ['parentBodyUniqueId', 'parentJointIndex',
+                                               'childBodyUniqueId', 'childLinkIndex', 'constraintType',
+                                               'jointAxis', 'jointPivotInParent', 'jointPivotInChild',
+                                               'jointFrameOrientationParent', 'jointFrameOrientationChild', 'maxAppliedForce'])
+
+def get_constraint_info(constraint): # getConstraintState
+    # TODO: four additional arguments
+    return ConstraintInfo(*p.getConstraintInfo(constraint, physicsClientId=CLIENT)[:11])
+
 def get_grasp_pose(constraint):
     """
     Grasps are parent_from_child
     """
-    constraint_info = constraints.get_constraint_info(constraint)
+    constraint_info = get_constraint_info(constraint)
     assert(constraint_info.constraintType == p.JOINT_FIXED)
     joint_from_parent = (constraint_info.jointPivotInParent, constraint_info.jointFrameOrientationParent)
     joint_from_child = (constraint_info.jointPivotInChild, constraint_info.jointFrameOrientationChild)

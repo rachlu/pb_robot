@@ -19,11 +19,11 @@ JOINT_TYPES = {
 
 def createBody(path, **kwargs):
     body_id = utils.load_model(path, **kwargs)
-    return Body(body_id)
+    return Body(body_id, path)
 
 
 class Body(object):
-    def __init__(self, bodyID): #info, **kwargs):
+    def __init__(self, bodyID, path=None):
         #self.id = utils.load_model(info, **kwargs)
         self.id = bodyID
         self.base_link = -1
@@ -40,6 +40,15 @@ class Body(object):
         self.all_links = [Link(self, self.base_link)] + self.links
         # get_link_info = get_dynamics_info
         # joint id -> Joint Class is just self.joints[jointID]
+
+        if path is not None:
+            self.readableName = ((path.split('/')[-1]).split('.'))[0]
+        else:
+            self.readableName = None
+
+    def __repr__(self):
+        if self.readableName is None: return self.get_name()
+        else: return self.readableName
 
     def get_info(self):
         return self.BodyInfo(*p.getBodyInfo(self.id, physicsClientId=CLIENT))
@@ -308,6 +317,15 @@ class Body(object):
                         visited.add(next_link)
             fixed.update(itertools.product(cluster, cluster))
         return fixed
+
+    def get_moving_links(self, moving_joints):
+        moving_links = set()
+        for joint in moving_joints:
+            link = self.child_link_from_joint(joint)
+            if link not in moving_links:
+                linkType = Link(self, link.jointID)
+                moving_links.update(linkType.get_link_subtree())
+        return list(moving_links)
 
     def get_relative_pose(self, link1, link2):
         world_from_link1 = link1.get_link_pose()
