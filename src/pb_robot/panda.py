@@ -167,6 +167,7 @@ class PandaArm(object):
 
         obstacles = [b for b in utils.get_bodies() if 'panda' not in b.get_name() and b.get_name() not in self.grabbedObjects.keys()]
         attachments = [g for g in self.grabbedObjects.values()]
+
         collisionfn = pb_robot.collisions.get_collision_fn(self.__robot, self.joints, obstacles, 
                                                            attachments, self_collisions)
 

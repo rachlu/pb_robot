@@ -1,8 +1,8 @@
 from collections import defaultdict, deque, namedtuple
 import itertools
 import pybullet as p
+import pb_robot
 import pb_robot.utils_noBase as utils
-import pb_robot.geometry as geometry
 from .utils_noBase import CLIENT
 from .joint import Joint
 from .link import Link
@@ -18,7 +18,9 @@ JOINT_TYPES = {
 }
 
 def createBody(path, **kwargs):
-    body_id = utils.load_model(path, **kwargs)
+    with pb_robot.helper.HideOutput():
+        with utils.LockRenderer():
+            body_id = utils.load_model(path, **kwargs)
     return Body(body_id, path)
 
 
@@ -81,7 +83,7 @@ class Body(object):
         return p.getBasePositionAndOrientation(self.id, physicsClientId=CLIENT)
 
     def get_transform(self):
-        return geometry.tform_from_pose(self.get_pose())
+        return pb_robot.geometry.tform_from_pose(self.get_pose())
 
     def get_point(self):
         return self.get_pose()[0]
@@ -90,7 +92,7 @@ class Body(object):
         return self.get_pose()[1] # [x,y,z,w]
 
     def get_euler(self):
-        return geometry.euler_from_quat(self.get_quat())
+        return pb_robot.geometry.euler_from_quat(self.get_quat())
 
     def get_base_values(self):
         return utils.base_values_from_pose(self.get_pose())
@@ -100,7 +102,7 @@ class Body(object):
         p.resetBasePositionAndOrientation(self.id, point, quat, physicsClientId=CLIENT)
 
     def set_transform(self, transform):
-        self.set_pose(geometry.pose_from_tform(transform))
+        self.set_pose(pb_robot.geometry.pose_from_tform(transform))
 
     def set_point(self, point):
         self.set_pose((point, self.get_quat()))
@@ -109,13 +111,13 @@ class Body(object):
         self.set_pose((self.get_point(), quat))
 
     def set_euler(self, euler):
-        self.set_quat(geometry.quat_from_euler(euler))
+        self.set_quat(pb_robot.geometry.quat_from_euler(euler))
 
     def set_base_values(self, values):
         _, _, z = self.get_point()
         x, y, theta = values
         self.set_point((x, y, z))
-        self.set_quat(geometry.z_rotation(theta))
+        self.set_quat(pb_robot.geometry.z_rotation(theta))
 
     def get_velocity(self):
         linear, angular = p.getBaseVelocity(self.id, physicsClientId=CLIENT)
@@ -330,7 +332,7 @@ class Body(object):
     def get_relative_pose(self, link1, link2):
         world_from_link1 = link1.get_link_pose()
         world_from_link2 = link2.get_link_pose()
-        link2_from_link1 = geometry.multiply(geometry.invert(world_from_link2), world_from_link1)
+        link2_from_link1 = pb_robot.geometry.multiply(pb_robot.geometry.invert(world_from_link2), world_from_link1)
         return link2_from_link1
 
     def get_dynamics_info(self, linkID=None):
@@ -358,6 +360,15 @@ class Body(object):
     def set_static(self):
         for link in self.all_links:
             self.set_mass(mass=self.static_mass, linkID=link.linkID)
+
+    def grasp_mu(self):
+        #TODO A bit of a hack
+        try: 
+            j = self.joint_from_name('com_joint') 
+            return j.get_joint_info().jointFriction 
+        except ValueError:
+            print("Friction Not Set, defaulting to zero")
+            return 0 
 
     def dump_body(self):
         print('Body id: {} | Name: {} | Rigid: {} | Fixed: {}'.format(

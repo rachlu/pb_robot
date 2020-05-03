@@ -1,4 +1,5 @@
 from collections import namedtuple
+import numpy
 import pybullet as p
 import pb_robot.utils_noBase as utils
 import pb_robot.geometry as geometry
@@ -54,6 +55,14 @@ class Link(object):
         # if set to 1 (or True), the Cartesian world position/orientation will be recomputed using forward kinematics.
         link_state = self.get_link_state() #, kinematics=True, velocity=False)
         return link_state.worldLinkFramePosition, link_state.worldLinkFrameOrientation
+
+    def get_link_tform(self, worldFrame=False):
+        link_worldF = geometry.tform_from_pose(self.get_link_pose())
+        link_objF = numpy.dot(numpy.linalg.inv(self.body.get_transform()), link_worldF)
+        if worldFrame:
+            return link_worldF
+        else:
+            return link_objF
 
     def get_link_children(self):
         children = self.body.get_all_link_children()

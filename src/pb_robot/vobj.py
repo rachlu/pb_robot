@@ -18,10 +18,10 @@ class BodyPose(object):
 
 
 class BodyGrasp(object):
-    def __init__(self, body, grasp_pose, approach_pose, robot, link):
+    def __init__(self, body, grasp_worldF, grasp_objF, robot, link):
         self.body = body
-        self.grasp_pose = grasp_pose
-        self.approach_pose = approach_pose
+        self.grasp_worldF = grasp_worldF #tform
+        self.grasp_objF = grasp_objF #Tform
         self.robot = robot
         self.link = link
     def attachment(self):

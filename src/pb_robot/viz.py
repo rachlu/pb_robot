@@ -36,8 +36,8 @@ def add_debug_parameter():
     #maxForce = p.readUserDebugParameter(maxForceSlider)
     raise NotImplementedError()
 
-def add_text(text, position=(0, 0, 0), color=(0, 0, 0), lifetime=None, parent=-1, parent_link=utils.BASE_LINK):
-    return p.addUserDebugText(str(text), textPosition=position, textColorRGB=color[:3], # textSize=1,
+def add_text(text, position=(0, 0, 0), color=(0, 0, 0), size=1, lifetime=None, parent=-1, parent_link=utils.BASE_LINK):
+    return p.addUserDebugText(str(text), textPosition=position, textColorRGB=color[:3], textSize=size,
                               lifeTime=get_lifetime(lifetime), parentObjectUniqueId=parent, parentLinkIndex=parent_link,
                               physicsClientId=utils.CLIENT)
 
