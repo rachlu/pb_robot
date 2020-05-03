@@ -39,10 +39,14 @@ def forceControl(robot, wrench_target):
     wrench_desired = numpy.zeros((6, 1))
     gain = 0.1 #Was 0.01
     p.setGravity(0, 0, -9.81)
+    # To go down, z should be negative! 
+    
+    fts = [0]*1000
+    jfs = [0]*1000
 
-    for _ in xrange(1000):
+    for i in xrange(1000):
         p.setJointMotorControlArray(robot.id, robot.arm.jointsID, p.VELOCITY_CONTROL,
-                                targetVelocities=[0]*7, forces=[40]*7)
+                                targetVelocities=[0]*7, forces=[35]*7)
 
         jacobian = robot.arm.GetJacobian(robot.arm.GetJointValues())
         # Feedforward. Commented out PI control because gains were 0 
@@ -56,6 +60,15 @@ def forceControl(robot, wrench_target):
         wrench_desired = gain * wrench_target + (1 - gain) * wrench_desired
         p.stepSimulation()
         time.sleep(0.01)
+
+        fts[i] = robot.arm.GetFTWristReading()[2] 
+        jfs[i] = numpy.matmul(robot.arm.GetJacobian(robot.arm.GetJointValues()), robot.arm.GetJointTorques())[2]
+        # Large difference between commanded torque and observed torque (with or without gravity)
+        # Is this true on the real robot? (i dont know!)
+        #t = numpy.array(robot.arm.GetJointTorques())
+        #tt = t.reshape(len(t), 1)
+        #print sum(numpy.subtract(tau_cmd, tt))
+    return numpy.mean(fts), numpy.mean(jfs)
 
 def moveToTouch(robot, q_desired):
     n = len(q_desired)
@@ -117,7 +130,9 @@ def cartImpedance(robot, pose_d_target, stiffness_params):
         (error_ori_angle, error_ori_axis) = pb_robot.geometry.quatToAxisAngle(error_ori_quat)
         ori_error = numpy.multiply(error_ori_axis, error_ori_angle)
         #error[3:6] = ori_error
+
         #TODO Adding orientation error creates wild movements. Must be debugged
+        print error
 
         q = robot.arm.GetJointValues()
         dq = robot.arm.GetJointVelocities()
@@ -162,8 +177,9 @@ if __name__ == '__main__':
         2.3278753 ,  0.63539486])
 
     wrench = numpy.zeros((6, 1))
-    wrench[0] = 100
-    wrench[1] = 50
+    #wrench[0] = 100
+    #wrench[1] = 50
+    wrench[2] = 10
 
     qs = [[0, 0, 0, 0, 0, 0, 0],
           [1, 0, 0, 0, 0, 0, 0]]
@@ -197,7 +213,7 @@ def forceControl(robot, wrench_target):
     #TODO go into loop
     gravity = 0; #TODO 7x1 vector, gravity vector as a function of q
     tau_measured = robot.arm.GetJointTorques()
-    tau_J_d = robot.arm.GetJointTorques() # 7x1 array. "Desired link-side joint torque sensor signals without gravity."
+    tau_J_d = robot.arm.GetJointTorques() # 7x1 array. "Desired link-side joint torque sensor signals without gravity."  # to compute this we could set gravity term to zero and recompute everything
 
     tau_ext = tau_measured - gravity - tau_ext_initial
     tau_d = jacobian.transpose() * wrench_desired
