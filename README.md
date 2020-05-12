@@ -21,6 +21,11 @@ Next we want to checkout code. For now, we do not use a rosinstall and wstool (a
 $ cd src
 $ git clone https://github.com/rachelholladay/pb_robot.git
 ```
+This package uses TSRs to define grasp sets and therefore we clone an additional package: 
+```
+git clone https://github.com/personalrobotics/tsr.git
+```
+
 Given that we can build:
 ```
 $ cd ..
