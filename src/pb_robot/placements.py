@@ -27,6 +27,7 @@ def sample_placement_on_aabb(top_body, bottom_aabb, top_pose=pb_robot.geometry.u
                              percent=1.0, max_attempts=50, epsilon=1e-3):
     # TODO: transform into the coordinate system of the bottom
     # TODO: maybe I should instead just require that already in correct frame
+    start_pose = top_body.get_pose()
     for _ in range(max_attempts):
         theta = np.random.uniform(*CIRCULAR_LIMITS)
         rotation = pb_robot.geometry.Euler(yaw=theta)
@@ -40,8 +41,9 @@ def sample_placement_on_aabb(top_body, bottom_aabb, top_pose=pb_robot.geometry.u
         z = (bottom_aabb[1] + extent/2.)[2] + epsilon
         point = np.array([x, y, z]) + (top_body.get_point() - center)
         pose = pb_robot.geometry.multiply(pb_robot.geometry.Pose(point, rotation), top_pose)
-        top_body.set_pose(pose)
+        top_body.set_pose(start_pose)
         return pose
+    top_body.set_pose(start_pose)
     return None
 
 def sample_placement(top_body, bottom_body, bottom_link=None, **kwargs):
