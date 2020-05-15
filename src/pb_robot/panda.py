@@ -4,6 +4,7 @@ import numpy
 import pybullet as p
 import pb_robot
 import pb_robot.utils_noBase as utils
+from panda_controls import PandaControls
 
 from pb_robot.ikfast.ikfast import closest_inverse_kinematics, ikfast_inverse_kinematics
 
@@ -36,7 +37,8 @@ class PandaArm(object):
         '''Establish all the robot specific variables and set up key
         data structures. Eventually it might be nice to read the specific variables
         from a combination of the urdf and a yaml file'''
-        self.__robot = pb_robot.body.Body(bodyID)
+        self.bodyID = bodyID
+        self.__robot = pb_robot.body.Body(self.bodyID)
         self.joints = joints
         self.jointsID = [j.jointID for j in self.joints]
         self.eeFrame = self.__robot.link_from_name(handName)
@@ -46,6 +48,8 @@ class PandaArm(object):
         # Add force torque sensor at wrist
         self.ft_joint = self.__robot.joint_from_name('panda_hand_joint')
         p.enableJointForceTorqueSensor(self.__robot.id, self.ft_joint.jointID, enableSensor=1)
+
+        self.control = PandaControls(self)
 
         # We manually maintain the kinematic tree of grasped objects by
         # keeping track of a dictionary of the objects and their relations
@@ -237,7 +241,7 @@ class PandaArm(object):
         for i in xrange(len(path)):
             self.SetJointValues(path[i])
             time.sleep(timestep)
-
+                        
 class PandaHand(object):
     '''Set position commands for the panda hand. Have not yet included
     gripping with force.'''
