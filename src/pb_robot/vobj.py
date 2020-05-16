@@ -1,8 +1,7 @@
 import pb_robot
 import pb_robot.utils_noBase as utils
 
-#TODO move imports
-from examples.pybullet.utils.pybullet_tools.utils import add_fixed_constraint, remove_fixed_constraint, Attachment
+from og_util import add_fixed_constraint, remove_fixed_constraint, Attachment
 
 class BodyPose(object):
     def __init__(self, body, pose=None):
