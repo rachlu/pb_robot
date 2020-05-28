@@ -6,8 +6,8 @@ import os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
 
 from itertools import islice
+import pb_robot
 import pb_robot.geometry as geometry
-import pb_robot.utils_noBase as utils
 import pb_robot.planning as planning
 import pb_robot.helper as helper
 
@@ -96,7 +96,7 @@ def ikfast_inverse_kinematics(robot, ikfast_info, tool_link, world_from_target,
         generator = islice(generator, max_attempts)
     start_time = time.time()
     for free_positions in generator:
-        if max_time < utils.elapsed_time(start_time):
+        if max_time < pb_robot.utils.elapsed_time(start_time):
             break
         for conf in helper.randomize(compute_inverse_kinematics(ikfast.get_ik, base_from_ee, free_positions)): 
             difference = difference_fn(current_conf, conf) 

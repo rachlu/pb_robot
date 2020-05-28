@@ -2,10 +2,10 @@ from collections import defaultdict, deque, namedtuple
 import itertools
 import pybullet as p
 import pb_robot
-import pb_robot.utils_noBase as utils
-from .utils_noBase import CLIENT
 from .joint import Joint
 from .link import Link
+
+CLIENT = 0
 
 JOINT_TYPES = {
     p.JOINT_REVOLUTE: 'revolute', # 0
@@ -19,8 +19,8 @@ JOINT_TYPES = {
 
 def createBody(path, **kwargs):
     with pb_robot.helper.HideOutput():
-        with utils.LockRenderer():
-            body_id = utils.load_model(path, **kwargs)
+        with pb_robot.utils.LockRenderer():
+            body_id = pb_robot.utils.load_model(path, **kwargs)
     return Body(body_id, path)
 
 
@@ -68,8 +68,8 @@ class Body(object):
         return '{}{}'.format(name, int(self.id))
 
     def remove_body(self):
-        if (CLIENT, self.id) in utils.INFO_FROM_BODY:
-            del utils.INFO_FROM_BODY[CLIENT, self.id]
+        if (CLIENT, self.id) in pb_robot.utils.INFO_FROM_BODY:
+            del pb_robot.utils.INFO_FROM_BODY[CLIENT, self.id]
         return p.removeBody(self.id, physicsClientId=CLIENT)
 
     def set_color(self, color):
@@ -95,7 +95,7 @@ class Body(object):
         return pb_robot.geometry.euler_from_quat(self.get_quat())
 
     def get_base_values(self):
-        return utils.base_values_from_pose(self.get_pose())
+        return pb_robot.utils.base_values_from_pose(self.get_pose())
 
     def set_pose(self, pose):
         (point, quat) = pose
@@ -254,7 +254,7 @@ class Body(object):
         movable_from_original = {o: m for m, o in enumerate(self.get_movable_joints())}
         return [movable_from_original[joint.jointID] for joint in fjoints]
 
-    def get_custom_limits(self, joints=None, custom_limits={}, circular_limits=utils.UNBOUNDED_LIMITS):
+    def get_custom_limits(self, joints=None, custom_limits={}, circular_limits=pb_robot.utils.UNBOUNDED_LIMITS):
         joint_limits = []
         for joint in self.format_joint_input(joints):
             if joint in custom_limits:
@@ -381,7 +381,7 @@ class Body(object):
         link = -1
         print('Link id: {} | Name: {} | Mass: {} | Collision: {} | Visual: {}'.format(
             link, self.get_base_name(), self.get_mass(),
-            len(utils.get_collision_data(self, self.base_link)), -1)) # len(get_visual_data(body, link))))
+            len(pb_robot.utils.get_collision_data(self, self.base_link)), -1)) # len(get_visual_data(body, link))))
 
         for link in self.links:
             pjoint = link.parentJoint
@@ -389,5 +389,5 @@ class Body(object):
             print('Link id: {} | Name: {} | Joint: {} | Parent: {} | Mass: {} | Collision: {} | Visual: {}'.format(
                 link.linkID, link.get_link_name(), joint_name,
                 (link.get_link_parent()).get_link_name(), self.get_mass(link.linkID),
-                len(utils.get_collision_data(self, link.linkID)), -1)) # len(get_visual_data(body, link)))) #XXX move this function from utils
+                len(pb_robot.utils.get_collision_data(self, link.linkID)), -1)) # len(get_visual_data(body, link)))) #XXX move this function from utils
 

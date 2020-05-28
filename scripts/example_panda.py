@@ -5,13 +5,12 @@
 import os
 import IPython
 import pb_robot
-import pb_robot.utils_noBase as utils
 
 if __name__ == '__main__':
     # Launch pybullet
-    utils.connect(use_gui=True)
-    utils.disable_real_time()
-    utils.set_default_camera()
+    pb_robot.utils.connect(use_gui=True)
+    pb_robot.utils.disable_real_time()
+    pb_robot.utils.set_default_camera()
 
     # Create robot object 
     robot = pb_robot.panda.Panda() 
@@ -37,5 +36,5 @@ if __name__ == '__main__':
     IPython.embed()
     
     # Close out Pybullet
-    utils.wait_for_user()
-    utils.disconnect()
+    pb_robot.utils.wait_for_user()
+    pb_robot.utils.disconnect()

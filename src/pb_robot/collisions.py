@@ -8,6 +8,11 @@ MAX_DISTANCE = 0
 CLIENT = 0
 BASE_LINK = -1
 
+ContactResult = namedtuple('ContactResult', ['contactFlag', 'bodyUniqueIdA', 'bodyUniqueIdB',
+                                             'linkIndexA', 'linkIndexB', 'positionOnA', 'positionOnB',
+                                             'contactNormalOnB', 'contactDistance', 'normalForce'])
+
+
 def get_collision_fn(body, joints, obstacles, attachments, self_collisions, custom_limits={}, **kwargs):
     check_link_pairs = get_self_link_pairs(body, joints) if self_collisions else []
     moving_links = frozenset(get_moving_links(body, joints))

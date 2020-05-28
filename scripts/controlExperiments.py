@@ -3,7 +3,6 @@ import numpy
 import os
 import copy
 import pb_robot
-import pb_robot.utils_noBase as utils
 import rut
 import pybullet as p
 import time
@@ -84,15 +83,15 @@ def testWrenchPath(robot):
 
 
 if __name__ == '__main__':
-    utils.connect(use_gui=True)
-    utils.disable_real_time()
+    pb_robot.utils.connect(use_gui=True)
+    pb_robot.utils.disable_real_time()
 
     objects_path = pb_robot.helper.getDirectory()    
     floor_file = os.path.join(objects_path, 'furniture/short_floor.urdf')
     floor = pb_robot.body.createBody(floor_file) 
     robot = pb_robot.panda.Panda()
     robot.arm.hand.Open()
-    utils.set_default_camera()
+    pb_robot.utils.set_default_camera()
     
     qup = numpy.array([ 2.555635,  1.005732, -0.847987, -1.578999,  0.873216, 2.168857,  0.633112])
     qclose = numpy.array([ 2.493620,  1.081660, -0.758616, -1.535153,  0.901534, 2.250647,  0.626513])

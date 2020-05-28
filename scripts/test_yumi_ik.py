@@ -6,8 +6,6 @@ import IPython
 import numpy
 import random
 import pb_robot
-import pb_robot.utils_noBase as utils
-import pb_robot.viz as viz
 
 def GeodesicError(t1, t2):
     """
@@ -40,11 +38,11 @@ def randomConfiguration(yumi):
     return dofs
 
 def main(): 
-    utils.connect(use_gui=True)
-    utils.disable_real_time()
+    pb_robot.utils.connect(use_gui=True)
+    pb_robot.utils.disable_real_time()
 
     yumi = pb_robot.yumi.Yumi() 
-    utils.set_default_camera()
+    pb_robot.utils.set_default_camera()
     #utils.dump_world()
 
     yumi.left_arm.SetJointValues([2, 0, 0, 0, 0, 0, 0])
@@ -52,7 +50,7 @@ def main():
     current_t = yumi.right_hand.get_link_pose()
     new_p = (0.58, 0.0, 0.515) 
     target_p = (new_p, current_t[1])
-    #viz.draw_pose(target_p, length=0.5, width=10)
+    #pb_robot.viz.draw_pose(target_p, length=0.5, width=10)
     #f = utils.inverse_kinematics(yumi, right_hand, target_p)
 
     qs = [[0, 0, 0, 0, 0, 0, 0],
@@ -68,15 +66,15 @@ def main():
         solved_q = full_solved_q[0:7]
         solved_pose = yumi.right_arm.ComputeFK(solved_q)
         error = GeodesicDistance(pose, solved_pose)
-        second_error = utils.is_pose_close(pb_robot.geometry.pose_from_tform(pose), 
+        second_error = pb_robot.utils.is_pose_close(pb_robot.geometry.pose_from_tform(pose), 
                                            pb_robot.geometry.pose_from_tform(solved_pose))
         print((error < 0.002) and second_error)
 
     IPython.embed()
   
     print('Quit?')
-    utils.wait_for_user()
-    utils.disconnect()
+    pb_robot.utils.wait_for_user()
+    pb_robot.utils.disconnect()
 
 if __name__ == '__main__':
     main()

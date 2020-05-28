@@ -1,8 +1,9 @@
 from collections import namedtuple
 import numpy
 import pybullet as p
-import pb_robot.utils_noBase as utils
 import pb_robot.geometry as geometry
+
+CLIENT = 0
 
 class Link(object):
     def __init__(self, body, linkID):
@@ -39,7 +40,7 @@ class Link(object):
         return self.LinkState(*p.getLinkState(self.body.id, self.linkID, 
                                               #computeLinkVelocity=velocity, 
                                               #computeForwardKinematics=kinematics,
-                                              physicsClientId=utils.CLIENT))
+                                              physicsClientId=CLIENT))
 
     def get_com_pose(self): # COM = center of mass
         link_state = self.get_link_state()

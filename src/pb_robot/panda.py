@@ -3,7 +3,6 @@ import time
 import numpy
 import pybullet as p
 import pb_robot
-import pb_robot.utils_noBase as utils
 from panda_controls import PandaControls
 
 from pb_robot.ikfast.ikfast import closest_inverse_kinematics, ikfast_inverse_kinematics
@@ -16,8 +15,8 @@ class Panda(pb_robot.body.Body):
         #self.urdf_file = 'models/franka_description/robots/panda_arm.urdf'
 
         with pb_robot.helper.HideOutput(): 
-            with utils.LockRenderer():
-                self.id = utils.load_model(self.urdf_file, fixed_base=True)
+            with pb_robot.utils.LockRenderer():
+                self.id = pb_robot.utils.load_model(self.urdf_file, fixed_base=True)
         pb_robot.body.Body.__init__(self, self.id)
 
         self.arm_joint_names = ['panda_joint{}'.format(i) for i in xrange(1, 8)]
@@ -169,7 +168,7 @@ class PandaArm(object):
         oldq = self.GetJointValues()
         self.SetJointValues(oldq)
 
-        obstacles = [b for b in utils.get_bodies() if 'panda' not in b.get_name() and b.get_name() not in self.grabbedObjects.keys()]
+        obstacles = [b for b in pb_robot.utils.get_bodies() if 'panda' not in b.get_name() and b.get_name() not in self.grabbedObjects.keys()]
         attachments = [g for g in self.grabbedObjects.values()]
 
         collisionfn = pb_robot.collisions.get_collision_fn(self.__robot, self.joints, obstacles, 

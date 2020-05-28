@@ -1,8 +1,9 @@
-import utils_noBase
+import utils
 import body
 import planning
 import transformations
 import placements
+import grasp
 import vobj
 import viz
 import collisions

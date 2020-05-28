@@ -1,17 +1,19 @@
 import random
 import time
 from itertools import product, combinations
+from collections import namedtuple
 from crg_planners.rrt_connect import birrt, direct_path
 
 import numpy as np
 import pybullet as p
+import pb_robot
 import pb_robot.geometry as geometry
-import pb_robot.helper as helper
-import pb_robot.utils_noBase as utils
 
 PI = np.pi
 CIRCULAR_LIMITS = -PI, PI
 CLIENT = 0
+MAX_DISTANCE = 0
+NullSpace = namedtuple('Nullspace', ['lower', 'upper', 'range', 'rest'])
 
 # Joint motion planning
 
@@ -170,7 +172,7 @@ def get_collision_fn(body, joints, obstacles, attachments, self_collisions, disa
     # TODO: maybe prune the link adjacent to the robot
     # TODO: test self collision with the holding
     def collision_fn(q):
-        if not helper.all_between(lower_limits, q, upper_limits):
+        if not pb_robot.helper.all_between(lower_limits, q, upper_limits):
             #print('Joint limits violated')
             return True
         body.set_joint_positions(joints, q)
@@ -178,11 +180,11 @@ def get_collision_fn(body, joints, obstacles, attachments, self_collisions, disa
             attachment.assign()
         for link1, link2 in check_link_pairs:
             # Self-collisions should not have the max_distance parameter
-            if utils.pairwise_link_collision(body, link1, body, link2): #, **kwargs):
+            if pb_robot.collisions.pairwise_link_collision(body, link1, body, link2): #, **kwargs):
                 #print(get_body_name(body), get_link_name(body, link1), get_link_name(body, link2))
                 return True
         for body1, body2 in check_body_pairs:
-            if utils.pairwise_collision(body1, body2, **kwargs):
+            if pb_robot.collisions.pairwise_collision(body1, body2, **kwargs):
                 #print(get_body_name(body1), get_body_name(body2))
                 return True
         return False
@@ -190,7 +192,7 @@ def get_collision_fn(body, joints, obstacles, attachments, self_collisions, disa
 
 def plan_waypoints_joint_motion(body, joints, waypoints, start_conf=None, obstacles=[], attachments=[],
                                 self_collisions=True, disabled_collisions=set(),
-                                resolutions=None, custom_limits={}, max_distance=utils.MAX_DISTANCE):
+                                resolutions=None, custom_limits={}, max_distance=MAX_DISTANCE):
     extend_fn = get_extend_fn(body, joints, resolutions=resolutions)
     collision_fn = get_collision_fn(body, joints, obstacles, attachments, self_collisions, disabled_collisions,
                                     custom_limits=custom_limits, max_distance=max_distance)
@@ -226,7 +228,7 @@ def check_initial_end(start_conf, end_conf, collision_fn):
 
 def plan_joint_motion(body, joints, end_conf, obstacles=[], attachments=[],
                       self_collisions=True, disabled_collisions=set(),
-                      weights=None, resolutions=None, max_distance=utils.MAX_DISTANCE, custom_limits={}, **kwargs):
+                      weights=None, resolutions=None, max_distance=MAX_DISTANCE, custom_limits={}, **kwargs):
 
     assert len(joints) == len(end_conf)
     sample_fn = get_sample_fn(body, joints, custom_limits=custom_limits)
@@ -264,7 +266,7 @@ def plan_lazy_prm(start_conf, end_conf, sample_fn, extend_fn, collision_fn, **kw
         elif not colliding_vertices.get((i1, i2), True):
             color = (0, 0, 0)
         #handles.append(add_line(draw_fn(samples[i1]), draw_fn(samples[i2]), color=color)) XXX comment back in?
-    utils.wait_for_user()
+    raw_input("")
     return path
 
 #####################################
@@ -316,7 +318,7 @@ def get_nonholonomic_extend_fn(body, joints, resolutions=None, **kwargs):
 def plan_nonholonomic_motion(body, joints, end_conf, obstacles=[], attachments=[],
                              self_collisions=True, disabled_collisions=set(),
                              weights=None, resolutions=None, reversible=True,
-                             max_distance=utils.MAX_DISTANCE, custom_limits={}, **kwargs):
+                             max_distance=MAX_DISTANCE, custom_limits={}, **kwargs):
 
     assert len(joints) == len(end_conf)
     sample_fn = get_sample_fn(body, joints, custom_limits=custom_limits)
@@ -351,7 +353,7 @@ def get_base_distance_fn(weights=1*np.ones(3)):
 
 def plan_base_motion(body, end_conf, base_limits, obstacles=[], direct=False,
                      weights=1*np.ones(3), resolutions=0.05*np.ones(3),
-                     max_distance=utils.MAX_DISTANCE, **kwargs):
+                     max_distance=MAX_DISTANCE, **kwargs):
     def sample_fn():
         x, y = np.random.uniform(*base_limits)
         theta = np.random.uniform(*CIRCULAR_LIMITS)
@@ -373,7 +375,7 @@ def plan_base_motion(body, end_conf, base_limits, obstacles=[], direct=False,
     def collision_fn(q):
         # TODO: update this function
         body.set_base_values(q)
-        return any(utils.pairwise_collision(body, obs, max_distance=max_distance) for obs in obstacles)
+        return any(pb_robot.collisions.pairwise_collision(body, obs, max_distance=max_distance) for obs in obstacles)
 
     start_conf = body.get_base_values()
     if collision_fn(start_conf):
@@ -419,3 +421,83 @@ def compute_joint_weights(robot, num=100):
     print(list(weighted_jacobian))
     print(time.time() - start_time)
     return weighted_jacobian
+
+def get_null_space(robot, joints, custom_limits={}):
+    rest_positions = robot.get_joint_positions(joints)
+    lower, upper = robot.get_custom_limits(joints, custom_limits)
+    lower = np.maximum(lower, -10*np.ones(len(joints)))
+    upper = np.minimum(upper, +10*np.ones(len(joints)))
+    joint_ranges = 10*np.ones(len(joints))
+    return NullSpace(list(lower), list(upper), list(joint_ranges), list(rest_positions))
+
+def plan_cartesian_motion(robot, first_joint, target_link, waypoint_poses,
+                          max_iterations=200, custom_limits={}, **kwargs):
+    # TODO: fix stationary joints
+    # TODO: pass in set of movable joints and take least common ancestor
+    # TODO: update with most recent bullet updates
+    # https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/inverse_kinematics.py
+    # https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/examples/inverse_kinematics_husky_kuka.py
+    # TODO: plan a path without needing to following intermediate waypoints
+
+    lower_limits, upper_limits = robot.get_custom_limits(robot.get_movable_joints(), custom_limits)
+    selected_links = robot.get_link_subtree(first_joint) # TODO: child_link_from_joint?
+    selected_movable_joints = robot.prune_fixed_joints(selected_links)
+    assert(target_link in selected_links)
+    selected_target_link = selected_links.index(target_link)
+    sub_robot = pb_robot.utils.clone_body(robot, links=selected_links, visual=False, collision=False) # TODO: joint limits
+    sub_movable_joints = sub_robot.get_movable_joints(robot)
+    #null_space = get_null_space(robot, selected_movable_joints, custom_limits=custom_limits)
+    null_space = None
+
+    solutions = []
+    for target_pose in waypoint_poses:
+        for iteration in range(max_iterations):
+            sub_kinematic_conf = pb_robot.utils.inverse_kinematics_helper(sub_robot, selected_target_link, target_pose, null_space=null_space)
+            if sub_kinematic_conf is None:
+                sub_robot.remove_body()
+                return None
+            sub_robot.set_joint_positions(sub_movable_joints, sub_kinematic_conf)
+            if pb_robot.utils.is_pose_close(sub_robot.get_link_pose(selected_target_link), target_pose, **kwargs):
+                robot.set_joint_positions(selected_movable_joints, sub_kinematic_conf)
+                kinematic_conf = robot.get_configuration()
+                if not pb_robot.helper.all_between(lower_limits, kinematic_conf, upper_limits):
+                    #movable_joints = get_movable_joints(robot)
+                    #print([(get_joint_name(robot, j), l, v, u) for j, l, v, u in
+                    #       zip(movable_joints, lower_limits, kinematic_conf, upper_limits) if not (l <= v <= u)])
+                    #print("Limits violated")
+                    #wait_for_user()
+                    sub_robot.remove_body()
+                    return None
+                #print("IK iterations:", iteration)
+                solutions.append(kinematic_conf)
+                break
+        else:
+            sub_robot.remove_body()
+            return None
+    sub_robot.remove_body()
+    return solutions
+
+def sub_inverse_kinematics(robot, first_joint, target_link, target_pose, **kwargs):
+    solutions = plan_cartesian_motion(robot, first_joint, target_link, [target_pose], **kwargs)
+    if solutions:
+        return solutions[0]
+    return None
+
+
+# Reachability
+
+def sample_reachable_base(robot, point, reachable_range=(0.25, 1.0)):
+    radius = np.random.uniform(*reachable_range)
+    x, y = radius*geometry.unit_from_theta(np.random.uniform(-np.pi, np.pi)) + point[:2]
+    yaw = np.random.uniform(*CIRCULAR_LIMITS)
+    base_values = (x, y, yaw)
+    #set_base_values(robot, base_values)
+    return base_values
+
+def uniform_pose_generator(robot, gripper_pose, **kwargs):
+    point = geometry.point_from_pose(gripper_pose)
+    while True:
+        base_values = sample_reachable_base(robot, point, **kwargs)
+        if base_values is None:
+            break
+        yield base_values
