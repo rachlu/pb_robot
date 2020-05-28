@@ -1,51 +1,67 @@
 import pb_robot
-import pb_robot.utils_noBase as utils
-
-from og_util import add_fixed_constraint, remove_fixed_constraint, Attachment
+import numpy
+import time
 
 class BodyPose(object):
-    def __init__(self, body, pose=None):
-        if pose is None:
-            pose = body.get_pose()
+    def __init__(self, body, pose):
         self.body = body
         self.pose = pose
-    def assign(self):
-        self.body.set_pose(self.pose)
-        return self.pose
     def __repr__(self):
         return 'p{}'.format(id(self) % 1000)
 
-
 class BodyGrasp(object):
-    def __init__(self, body, grasp_worldF, grasp_objF, robot, link):
+    def __init__(self, body, grasp_objF, manip):
         self.body = body
-        self.grasp_worldF = grasp_worldF #tform
         self.grasp_objF = grasp_objF #Tform
-        self.robot = robot
-        self.link = link
-    def attachment(self):
-        return Attachment(self.robot.id, self.link.linkID, self.grasp_pose, self.body.id)
-    def assign(self):
-        return self.attachment().assign()
+        self.manip = manip
+    def simulate(self):
+        if self.body.get_name() in self.manip.grabbedObjects:
+            # Object grabbed, need to release
+            self.manip.hand.Open()
+            self.manip.Release(self.body)
+        else:
+            # Object not grabbed, need to grab
+            self.manip.hand.Close()
+            self.manip.Grab(self.body, self.grasp_objF)
     def __repr__(self):
         return 'g{}'.format(id(self) % 1000)
 
-
 class BodyConf(object):
-    def __init__(self, body, configuration=None, joints=None):
-        if joints is None:
-            joints = body.get_movable_joints()
-        if configuration is None:
-            configuration = body.arm.GetJointValues() 
-        self.body = body
-        self.joints = joints
+    def __init__(self, manip, configuration):
+        self.manip = manip
         self.configuration = configuration
-    def assign(self):
-        #self.body.set_joint_positions(self.joints, self.configuration)
-        self.body.arm.SetJointValues(self.configuration)
-        return self.configuration
     def __repr__(self):
         return 'q{}'.format(id(self) % 1000)
+
+class JointSpacePath(object):
+    def __init__(self, manip, path):
+        self.manip = manip
+        self.path = path
+    def simulate(self):
+        self.manip.ExecutePositionPath(self.path)
+    def __repr__(self):
+        return 'j_path{}'.format(id(self) % 1000)
+
+class CartImpedPath(object):
+    def __init__(self, manip, start_q, ee_path, stiffness=None, timestep=0.05):
+        if stiffness is None:
+            stiffness = [400]*6
+        self.manip = manip
+        self.ee_path = ee_path
+        self.start_q = start_q
+        self.stiffness = stiffness
+        self.timestep = timestep
+    def simulate(self):
+        q = self.manip.GetJointValues()
+        if numpy.linalg.norm(numpy.subtract(q, self.start_q)) > 1e-3:
+            raise IOError("Incorrect starting position")
+        # Going to fake cartesian impedance control
+        for i in xrange(len(self.ee_path)):
+            q = self.manip.ComputeIK(self.ee_path[i], seed_q=q)
+            self.manip.SetJointValues(q)
+            time.sleep(self.timestep)
+    def __repr__(self):
+        return 'ci_path{}'.format(id(self) % 1000)
 
 
 class BodyPath(object):
@@ -69,14 +85,14 @@ class BodyPath(object):
     def control(self, real_time=False, dt=0):
         # TODO: just waypoints
         if real_time:
-            utils.enable_real_time()
+            pb_robot.utils.enable_real_time()
         else:
-            utils.disable_real_time()
+            pb_robot.utils.disable_real_time()
         for values in self.path:
-            for _ in utils.joint_controller(self.body, self.joints, values):
-                utils.enable_gravity()
+            for _ in pb_robot.utils.joint_controller(self.body, self.joints, values):
+                pb_robot.utils.enable_gravity()
                 if not real_time:
-                    utils.step_simulation()
+                    pb_robot.utils.step_simulation()
                 time.sleep(dt)
     def refine(self, num_steps=0):
         return self.__class__(self.body, pb_robot.planning.refine_path(self.body, self.joints, self.path, num_steps), self.joints, self.attachments)
@@ -102,13 +118,13 @@ class ApplyForce(object):
 class Attach(ApplyForce):
     def control(self, **kwargs):
         # TODO: store the constraint_id?
-        add_fixed_constraint(self.body, self.robot, self.link)
+        pb_robot.grasp.add_fixed_constraint(self.body, self.robot, self.link)
     def reverse(self):
         return Detach(self.body, self.robot, self.link)
 
 class Detach(ApplyForce):
     def control(self, **kwargs):
-        remove_fixed_constraint(self.body, self.robot, self.link)
+        pb_robot.grasp.remove_fixed_constraint(self.body, self.robot, self.link)
     def reverse(self):
         return Attach(self.body, self.robot, self.link)
 
@@ -128,7 +144,7 @@ class Command(object):
             raw_input("next path?")
             for j in body_path.iterator():
                 #time.sleep(time_step)
-                utils.wait_for_duration(time_step)
+                pb_robot.utils.wait_for_duration(time_step)
 
     def control(self, real_time=False, dt=0): # TODO: real_time
         for body_path in self.body_paths:
