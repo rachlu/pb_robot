@@ -83,7 +83,7 @@ class BiRRTPlanner(object):
         path = self.BiRRTPlanner(manip, start, goal_tsr, GoalType.TSR_EE, constraints=constraints, **kw_args)
         return util.generatePath(path)
 
-    def BiRRTPlanner(self, manip, start, goalLocation, goal_type, constraints=None, grasp=None):
+    def BiRRTPlanner(self, manip, start, goalLocation, goal_type, obstacles=None, constraints=None, grasp=None):
         '''Given start and end goals, plan a path
         @param manip Arm to plan wit
         @param start start joint configuration
@@ -103,6 +103,7 @@ class BiRRTPlanner(object):
         self.goal_type = goal_type
         self.constraints = constraints
         self.grasp = grasp 
+        self.obstacles = obstacles
         original_pose = manip.GetJointValues()
         if self.goal_type == GoalType.TSR_TOOL and self.grasp is None:
             raise ValueError("Planning calls that operate on the tool require the grasp is given")
@@ -299,7 +300,7 @@ class BiRRTPlanner(object):
         @param q Joint configuration
         @return collisionFree (boolean) True if collision free''' 
         # Reject if end point is not collision free
-        if not self.manip.IsCollisionFree(q):
+        if not self.manip.IsCollisionFree(q, obstacles=self.obstacles):
             return False
         cdist = util.cspaceLength([q_parent, q])
         count = int(cdist / 0.1) # Check every 0.1 distance (a little arbitrary)
@@ -307,7 +308,7 @@ class BiRRTPlanner(object):
         # linearly interpolate between that at some step size and check all those points
         interp = [numpy.linspace(q_parent[i], q[i], count+1).tolist() for i in xrange(len(q))]
         middle_qs = numpy.transpose(interp)[1:-1] # Remove given points
-        return all((self.manip.IsCollisionFree(m) for m in middle_qs)) 
+        return all((self.manip.IsCollisionFree(m, obstacles=self.obstacles) for m in middle_qs)) 
 
     def extractPath(self, Ta, qa_reach, Tb, qb_reach):
         '''We have paths from 0 to each reach where the reaches are equal,

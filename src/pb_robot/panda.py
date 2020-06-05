@@ -158,7 +158,7 @@ class PandaArm(object):
                 return self.ComputeIK(transform)
         return q 
 
-    def IsCollisionFree(self, q, self_collisions=True):
+    def IsCollisionFree(self, q, obstacles=None, self_collisions=True):
         '''Check if a configuration is collision-free. Given any grasped objects
         we do not collision-check against those. 
         @param q Configuration to check at
@@ -168,7 +168,9 @@ class PandaArm(object):
         oldq = self.GetJointValues()
         self.SetJointValues(oldq)
 
-        obstacles = [b for b in pb_robot.utils.get_bodies() if 'panda' not in b.get_name() and b.get_name() not in self.grabbedObjects.keys()]
+        if obstacles is None:
+            # If no set of obstacles given, assume all obstacles in the environment (that arent the robot and not grasped) 
+            obstacles = [b for b in pb_robot.utils.get_bodies() if 'panda' not in b.get_name() and b.get_name() not in self.grabbedObjects.keys()]
         attachments = [g for g in self.grabbedObjects.values()]
 
         collisionfn = pb_robot.collisions.get_collision_fn(self.__robot, self.joints, obstacles, 
