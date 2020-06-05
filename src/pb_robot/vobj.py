@@ -33,6 +33,13 @@ class BodyConf(object):
     def __repr__(self):
         return 'q{}'.format(id(self) % 1000)
 
+class BodyWrench(object):
+    def __init__(self, body, ft):
+        self.body = body
+        self.ft_objF = ft
+    def __repr__(self):
+        return 'w{}'.format(id(self) % 1000)
+
 class JointSpacePath(object):
     def __init__(self, manip, path):
         self.manip = manip
@@ -41,6 +48,17 @@ class JointSpacePath(object):
         self.manip.ExecutePositionPath(self.path)
     def __repr__(self):
         return 'j_path{}'.format(id(self) % 1000)
+
+class MoveToTouch(object):
+    #TODO do I want to change the input?
+    def __init__(self, manip, start, end):
+        self.manip = manip
+        self.start = start
+        self.end = end
+    def simulate(self):
+        self.manip.ExecutePositionPath([self.start, self.end])
+    def __repr__(self):
+        return 'move_touch{}'.format(id(self) % 1000)
 
 class CartImpedPath(object):
     def __init__(self, manip, start_q, ee_path, stiffness=None, timestep=0.05):
