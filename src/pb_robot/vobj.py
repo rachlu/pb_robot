@@ -38,7 +38,8 @@ class BodyGrasp(object):
             self.manip.Release(self.body)
         else:
             # Object not grabbed, need to grab
-            self.manip.hand.Close()
+            #self.manip.hand.Close()
+            self.manip.hand.MoveTo(0.01)
             self.manip.Grab(self.body, self.grasp_objF)
     def execute(self, realRobot=None):
         hand_pose = realRobot.hand.joint_positions()
@@ -62,7 +63,8 @@ class ViseGrasp(object):
             self.hand.Release(self.body)
         else:
             # Object not grabbed, need to grab
-            self.hand.Close()
+            #self.hand.Close()
+            self.hand.MoveTo(-0.04, 0.04) 
             self.hand.Grab(self.body, self.grasp_objF)
     def execute(self, realRobot=None):
         # This is a bad work-around
@@ -135,7 +137,7 @@ class FrankaQuat(object):
 
 
 class CartImpedPath(object):
-    def __init__(self, manip, start_q, ee_path, stiffness=None, timestep=0.05):
+    def __init__(self, manip, start_q, ee_path, stiffness=None, timestep=0.1):
         if stiffness is None: 
             stiffness = [400, 400, 400, 40, 40, 40]
         self.manip = manip

@@ -58,7 +58,7 @@ class WSG50Hand(pb_robot.body.Body):
 #TODO want to move to wsg50_common and proper imports (not command line calls)
 import os
 import rospy
-from wsg_50_common import msg
+#from wsg_50_common import msg
 
 class WSG50HandReal(object):
     def __init__(self):
@@ -92,4 +92,3 @@ class WSG50HandReal(object):
         except (rospy.ROSException, rospy.ROSInterruptException):
             print("Unable to contact Hand")
             return 0 
-
