@@ -2,7 +2,6 @@ import numpy
 import pybullet as p
 import pb_robot
 
-
 class WSG50Hand(pb_robot.body.Body):
     '''Set position commands for the panda hand. Have not yet included
     gripping with force.'''
@@ -55,3 +54,42 @@ class WSG50Hand(pb_robot.body.Body):
         @return 4x4 transform of end effector in the world'''
         eeFrame = self.__robot.link_from_name('panda_hand')
         return pb_robot.geometry.tform_from_pose(eeFrame.get_link_pose())
+
+#TODO want to move to wsg50_common and proper imports (not command line calls)
+import os
+import rospy
+from wsg_50_common import msg
+
+class WSG50HandReal(object):
+    def __init__(self):
+        # If rosnode is not running, start one
+        if 'unnamed' in rospy.get_name():
+            rospy.init_node('wsg50_node', anonymous=True)
+
+        self.openValue = 110
+        self.closeValue = 0
+
+    def home(self):
+        os.system("rosservice call /wsg_50_driver/homing")
+
+    def move(self, width, speed=50):
+        os.system("rosservice call /wsg_50_driver/move {} {}".format(width, speed))
+
+    def open(self, speed=50):
+        os.system("rosservice call /wsg_50_driver/move {} {}".format(self.openValue, speed))
+
+    def close(self, speed=50):
+        os.system("rosservice call /wsg_50_driver/move {} {}".format(self.closeValue, speed))
+
+    def grasp(self, width, force, speed=50):
+        os.system("rosservice call /wsg_50_driver/set_force {}".format(force))
+        os.system("rosservice call /wsg_50_driver/move {} {}".format(width, speed))
+
+    def get_width(self):
+        try:
+            hand_status = rospy.wait_for_message("wsg_50_driver/status", msg.Status, timeout=2)
+            return hand_status.width
+        except (rospy.ROSException, rospy.ROSInterruptException):
+            print("Unable to contact Hand")
+            return 0 
+
