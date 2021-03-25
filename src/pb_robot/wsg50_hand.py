@@ -57,11 +57,11 @@ class WSG50Hand(pb_robot.body.Body):
 
 #TODO want to move to wsg50_common and proper imports (not command line calls)
 import os
-import rospy
 #from wsg_50_common import msg
 
 class WSG50HandReal(object):
     def __init__(self):
+        import rospy
         # If rosnode is not running, start one
         if 'unnamed' in rospy.get_name():
             rospy.init_node('wsg50_node', anonymous=True)
@@ -86,6 +86,7 @@ class WSG50HandReal(object):
         os.system("rosservice call /wsg_50_driver/move {} {}".format(width, speed))
 
     def get_width(self):
+        import rospy
         try:
             hand_status = rospy.wait_for_message("wsg_50_driver/status", msg.Status, timeout=2)
             return hand_status.width

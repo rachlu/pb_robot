@@ -1,7 +1,6 @@
 import pb_robot
 import numpy
 import time
-import quaternion
 
 class BodyPose(object):
     def __init__(self, body, pose):
@@ -155,6 +154,7 @@ class CartImpedPath(object):
             self.manip.SetJointValues(q)
             time.sleep(self.timestep)
     def execute(self, realRobot=None):
+        import quaternion
         #FIXME adjustment based on current position..? Need to play with how execution goes.
         sim_start = self.ee_path[0, 0:3, 3]
         real_start = realRobot.endpoint_pose()['position']
