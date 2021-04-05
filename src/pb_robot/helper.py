@@ -17,12 +17,11 @@ def randomize(sequence): # TODO: bisect
     for i in indices:
         yield sequence[i]
 
-def getDirectory():
+def getDirectory(package_name='mcube_objects'):
     '''Get the file path for the location of kinbody
     @return object_path (string) Path to objects folder'''
     from catkin.find_in_workspaces import find_in_workspaces
-    package_name = 'mcube_objects'
-    directory = 'data'
+    directory = 'models'
     objects_path = find_in_workspaces(
         search_dirs=['share'],
         project=package_name,
