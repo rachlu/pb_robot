@@ -58,8 +58,8 @@ class Manipulator(object):
         self.snap = pb_robot.planners.SnapPlanner()
 
         # Add force torque sensor at wrist
-        #self.ft_joint = self.__robot.joint_from_name('panda_hand_joint')
-        #p.enableJointForceTorqueSensor(self.__robot.id, self.ft_joint.jointID, enableSensor=1)
+        self.ft_joint = self.__robot.joint_from_name('panda_hand_joint')
+        p.enableJointForceTorqueSensor(self.__robot.id, self.ft_joint.jointID, enableSensor=1)
         #self.control = PandaControls(self)
 
         # We manually maintain the kinematic tree of grasped objects by
