@@ -12,7 +12,7 @@ PI = np.pi
 SEPARATOR = '\n' + 50*'-' + '\n'
 
 def randomize(sequence): # TODO: bisect
-    indices = range(len(sequence))
+    indices = list(range(len(sequence)))
     random.shuffle(indices)
     for i in indices:
         yield sequence[i]

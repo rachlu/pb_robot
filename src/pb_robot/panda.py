@@ -3,7 +3,7 @@ import time
 import numpy
 import pybullet as p
 import pb_robot
-from panda_controls import PandaControls
+from .panda_controls import PandaControls
 
 from pb_robot.ikfast.ikfast import closest_inverse_kinematics, ikfast_inverse_kinematics
 
@@ -19,7 +19,7 @@ class Panda(pb_robot.body.Body):
                 self.id = pb_robot.utils.load_model(self.urdf_file, fixed_base=True)
         pb_robot.body.Body.__init__(self, self.id)
 
-        self.arm_joint_names = ['panda_joint{}'.format(i) for i in xrange(1, 8)]
+        self.arm_joint_names = ['panda_joint{}'.format(i) for i in range(1, 8)]
         self.arm_joints = [self.joint_from_name(n) for n in self.arm_joint_names]
         self.ik_info = pb_robot.ikfast.utils.IKFastInfo(module_name='franka_panda.ikfast_panda_arm',
                                                         base_link='panda_link0',
@@ -147,7 +147,7 @@ class Manipulator(object):
         (lower, upper) = self.GetJointLimits()
         while True:
             dofs = numpy.zeros(len(lower))
-            for i in xrange(len(lower)):
+            for i in range(len(lower)):
                 dofs[i] = random.uniform(lower[i], upper[i])
             if self.IsCollisionFree(dofs, self_collisions=True, obstacles=[]):
                 return dofs
@@ -284,7 +284,7 @@ class Manipulator(object):
         #TODO add checks to insure path is valid. 
         @param path MxN list of configurations where M is number of positions
         @param timestep Wait time between each configuration ''' 
-        for i in xrange(len(path)):
+        for i in range(len(path)):
             self.SetJointValues(path[i])
             time.sleep(timestep)
                         

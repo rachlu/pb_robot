@@ -7,7 +7,7 @@ Various utility functions for constrained tool manipulation
 
 import numpy
 import random
-from tsr import TSR, TSRChain
+import tsr 
 
 def generatePath(path_array):
     '''Given an array of poses, create an OpenRAVE executable path
@@ -31,7 +31,7 @@ def generatePath(path_array):
 
     # Remove duplicate points
     removeRows = []
-    for i in xrange(len(path_array)-1):
+    for i in range(len(path_array)-1):
         diff = sum(numpy.subtract(path_array[i], path_array[i+1]))
         if abs(diff) < 1e-2:
             removeRows += [i]
@@ -73,8 +73,8 @@ def CreateTSRFromPose(manip, pose):
     @param manip Manipulator to use use (required for tsr)
     @param pose 4x4 transform to center TSR on
     @return tsr_chain chain with single pose TSR'''
-    goal_tsr = TSR(T0_w=pose)
-    tsr_chain = TSRChain(sample_goal=True, TSR=goal_tsr)
+    goal_tsr = tsr.tsr.TSR(T0_w=pose)
+    tsr_chain = tsr.tsr.TSRChain(sample_goal=True, TSR=goal_tsr)
     return tsr_chain
 
 def cspaceLength(path):
@@ -82,7 +82,7 @@ def cspaceLength(path):
     @param path List of joint configurations 
     @return total_dist Scaler sum of distances'''
     total_dist = 0
-    for i in xrange(len(path)-1):
+    for i in range(len(path)-1):
         total_dist += numpy.linalg.norm(numpy.subtract(path[i+1], path[i]))
     return total_dist
 

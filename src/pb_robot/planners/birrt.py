@@ -8,16 +8,16 @@ import time
 from scipy import spatial
 import networkx as nx 
 import numpy
-import util
-from plannerTypes import GoalType, ConstraintType
+from . import util
+from .plannerTypes import GoalType, ConstraintType
 
 class BiRRTPlanner(object):
     '''My implementation of cbirrt, for now without constraining,
     for toying around'''
     def __init__(self):
         ## Constants 
-        self.TOTAL_TIME = 15.0
-        self.SHORTEN_TIME = 1.0 # For video level, 4 seconds
+        self.TOTAL_TIME = 10.0
+        self.SHORTEN_TIME = 2.0 # For video level, 4 seconds
         self.PSAMPLE = 0.2 
         self.QSTEP = 1
         self.tstart = None
@@ -61,7 +61,7 @@ class BiRRTPlanner(object):
         @param goal_poses Set of end effector pose to plan to
         @return OpenRAVE joint trajectory or None if plan failed'''
         chains = []
-        for i in xrange(len(goal_poses)):
+        for i in range(len(goal_poses)):
             tsr_chain = util.CreateTSRFromPose(manip, goal_poses[i])
             chains.append(tsr_chain)
         return self.PlanToEndEffectorTSR(manip, start, chains, **kw_args)
@@ -175,7 +175,7 @@ class BiRRTPlanner(object):
             return True
 
         # Grab all the relevant constraints
-        relevantConstraints = [self.constraints[i][0] for i in xrange(len(self.constraints)) if self.constraints[i][1] == constraintType]
+        relevantConstraints = [self.constraints[i][0] for i in range(len(self.constraints)) if self.constraints[i][1] == constraintType]
         
         # If there are no relevant constraints, also satified
         if len(relevantConstraints) == 0:
@@ -228,7 +228,7 @@ class BiRRTPlanner(object):
         @return Random configuration within joint limits'''
         (lower, upper) = self.manip.GetJointLimits()
         joint_values = numpy.zeros(len(lower))
-        for i in xrange(len(lower)):
+        for i in range(len(lower)):
             joint_values[i] = random.uniform(lower[i], upper[i])
         return joint_values
 
@@ -291,7 +291,7 @@ class BiRRTPlanner(object):
         @param qs Joint configuration
         @param qs_new Joint configuration'''
         (lower, upper) = self.manip.GetJointLimits()
-        qs_new = [max(lower[i], min(qs[i], upper[i])) for i in xrange(len(lower))]
+        qs_new = [max(lower[i], min(qs[i], upper[i])) for i in range(len(lower))]
         return qs_new
 
     def checkEdgeCollision(self, q, q_parent):
@@ -305,7 +305,7 @@ class BiRRTPlanner(object):
         count = int(cdist / 0.1) # Check every 0.1 distance (a little arbitrary)
 
         # linearly interpolate between that at some step size and check all those points
-        interp = [numpy.linspace(q_parent[i], q[i], count+1).tolist() for i in xrange(len(q))]
+        interp = [numpy.linspace(q_parent[i], q[i], count+1).tolist() for i in range(len(q))]
         middle_qs = numpy.transpose(interp)[1:-1] # Remove given points
         return all((self.manip.IsCollisionFree(m, obstacles=self.obstacles) for m in middle_qs)) 
 

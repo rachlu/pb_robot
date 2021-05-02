@@ -1,18 +1,18 @@
-import utils
-import body
-import planning
-import transformations
-import placements
-import grasp
-import vobj
-import viz
-import collisions
-import panda
-import wsg50_hand
-import yumi
+from . import utils
+from . import body
+from . import planning
+from . import transformations
+from . import placements
+from . import grasp
+from . import vobj
+from . import viz
+from . import collisions
+from . import panda
+from . import wsg50_hand
+from . import yumi
 
-import tsrs
-import planners
+from . import tsrs
+from . import planners
 
 #import og_util
 #import utils
