@@ -56,6 +56,7 @@ class Manipulator(object):
         # Eventually add a more fleshed out planning suite
         self.birrt = pb_robot.planners.BiRRTPlanner()
         self.snap = pb_robot.planners.SnapPlanner()
+        self.cbirrt = pb_robot.planners.CBiRRTPlanner()
 
         # Add force torque sensor at wrist
         self.ft_joint = self.__robot.joint_from_name('panda_hand_joint')
