@@ -21,7 +21,7 @@ if __name__ == '__main__':
     floor = pb_robot.body.createBody(floor_file)
 
     # Example function on body object
-    print floor.get_transform()
+    print(floor.get_transform())
 
     # Example functions over robot arm
     q = robot.arm.GetJointValues()
@@ -30,7 +30,7 @@ if __name__ == '__main__':
     pb_robot.viz.draw_pose(pb_robot.geometry.pose_from_tform(pose), length=0.5, width=10)
     newq = robot.arm.ComputeIK(pose)
     if newq is not None:
-        raw_input("Move to desired pose?")
+        input("Move to desired pose?")
         robot.arm.SetJointValues(newq)
 
     IPython.embed()
