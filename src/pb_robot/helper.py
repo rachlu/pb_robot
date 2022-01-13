@@ -17,7 +17,7 @@ def randomize(sequence): # TODO: bisect
     for i in indices:
         yield sequence[i]
 
-def getDirectory(package_name='mcube_objects'):
+def getDirectory(package_name='pb_robot'):
     '''Get the file path for the location of kinbody
     @return object_path (string) Path to objects folder'''
     from catkin.find_in_workspaces import find_in_workspaces
