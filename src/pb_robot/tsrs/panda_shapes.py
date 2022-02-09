@@ -1,8 +1,9 @@
 import numpy, math
+import pb_robot
 from tsr.tsrlibrary import TSRFactory
 from tsr.tsr import TSR, TSRChain
 
-def grasp(box, push_distance=0.0,
+def grasp_box(box, push_distance=0.0,
                 width_offset=0.0,
                 **kw_args):
     """
@@ -11,12 +12,14 @@ def grasp(box, push_distance=0.0,
     """
     ee_to_palm_distance = 0.098 
     lateral_offset=ee_to_palm_distance + push_distance
+    aabb = pb_robot.aabb.get_aabb(box)
+    (box_l, box_w, box_h) = pb_robot.aabb.get_aabb_extent(aabb)
 
     T0_w = box.get_transform()
     chain_list = []
 
     # Base of box (opposite side of head)
-    Tw_e_front1 = numpy.array([[ 0., 0., -1.,  lateral_offset],
+    Tw_e_front1 = numpy.array([[ 0., 0., -1., lateral_offset],
                                [ 0., 1.,  0., 0.0],
                                [ 1., 0.,  0., 0.0], 
                                [ 0., 0.,  0., 1.]])
@@ -26,7 +29,7 @@ def grasp(box, push_distance=0.0,
                                [ 1.,  0.,  0., 0.0],
                                [ 0.,  0.,  0., 1.]])
     Bw_yz = numpy.zeros((6,2))
-    Bw_yz[2, :] = [-0.1, 0] 
+    Bw_yz[2, :] = [-box_h/2.0, box_h/2.0] 
     front_tsr1 = TSR(T0_w = T0_w, Tw_e = Tw_e_front1, Bw = Bw_yz)
     grasp_chain_front1 = TSRChain(sample_start=False, sample_goal=True,
                                  constrain=False, TSR=front_tsr1)
@@ -58,7 +61,7 @@ def grasp(box, push_distance=0.0,
                               [ 0., 0., 1., -lateral_offset-0.05],
                               [ 0., 0., 0., 1.]])
     Bw_side = numpy.zeros((6,2))
-    Bw_side[1,:] = [-width_offset, width_offset]
+    Bw_side[0, :] = [-box_w/2.0, box_w/2.0]
     side_tsr1 = TSR(T0_w = T0_w, Tw_e = Tw_e_side1, Bw = Bw_side)
     grasp_chain_side1 = TSRChain(sample_start=False, sample_goal=True,
                                 constrain=False, TSR=side_tsr1)
@@ -88,7 +91,7 @@ def grasp(box, push_distance=0.0,
                                 [ 1.,  0.,  0., 0.0],
                                 [ 0.,  0.,  0., 1.]])
     Bw_topbottom = numpy.zeros((6,2))
-    Bw_topbottom[2,:] = [-0.1, 0.0]
+    Bw_topbottom[2, :] = [-box_h/2.0, box_h/2.0]
     bottom_tsr1 = TSR(T0_w = T0_w, Tw_e = Tw_e_bottom1, Bw = Bw_topbottom)
     grasp_chain_bottom1 = TSRChain(sample_start=False, sample_goal=True,
                                   constrain=False, TSR=bottom_tsr1)
