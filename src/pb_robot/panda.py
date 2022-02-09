@@ -29,12 +29,6 @@ class Panda(pb_robot.body.Body):
         self.startq = [0, -numpy.pi/4.0, 0, -0.75*numpy.pi, 0, numpy.pi/2.0, numpy.pi/4.0]
         self.hand = PandaHand(self.id)
         self.arm = Manipulator(self.id, self.arm_joints, self.hand, 'panda_hand', self.ik_info, self.torque_limits, self.startq)
-        # hand joints, torque limits, ik_info, start_q
-
-
-        # Eventually add a more fleshed out planning suite
-        #self.birrt = pb_robot.planners.BiRRTPlanner(self)
-        #self.snap = pb_robot.planners.SnapPlanner(self)
 
 
 class Manipulator(object):
@@ -46,6 +40,7 @@ class Manipulator(object):
         data structures. Eventually it might be nice to read the specific variables
         from a combination of the urdf and a yaml file'''
         self.bodyID = bodyID
+        self.id = bodyID
         self.__robot = pb_robot.body.Body(self.bodyID)
         self.joints = joints
         self.jointsID = [j.jointID for j in self.joints]
@@ -78,11 +73,27 @@ class Manipulator(object):
             self.SetJointValues(self.startq)
         self.collisionfn_cache = {}
 
+        self.faces = []
+
     def get_name(self):
         return self.__robot.get_name()
 
     def __repr__(self):
         return self.get_name() + '_arm'
+
+    def get_configuration(self):
+        '''Return the robot configuration
+        @return Nx1 array of joint values'''
+        return self.GetJointValues()
+
+    def set_configuration(self, q):
+        return self.SetJointValues(q) 
+
+    def get_transform(self):
+        return self.__robot.get_transform()
+
+    def set_transform(self, tform):
+        return self.__robot.set_transform(tform)
 
     def GetJointValues(self):
         '''Return the robot configuration
@@ -130,15 +141,20 @@ class Manipulator(object):
         @return 4x4 transform of end effector in the world'''
         return pb_robot.geometry.tform_from_pose(self.eeFrame.get_link_pose())
 
-    def ComputeFK(self, q):
+    def ComputeFK(self, q, tform=None):
         '''Compute the forward kinematics of a configuration q
         @param configuration q
         @return 4x4 transform of the end effector when the robot is at
                 configuration q'''
+        if tform is not None:
+            old_pose = self.get_transform()
+            self.set_transform(tform)
         old_q = self.GetJointValues()
         self.SetJointValues(q)
         pose = self.GetEETransform()
         self.SetJointValues(old_q)
+        if tform is not None:
+            self.set_transform(tform)    
         return pose 
 
     def randomConfiguration(self):
@@ -288,6 +304,14 @@ class Manipulator(object):
         for i in range(len(path)):
             self.SetJointValues(path[i])
             time.sleep(timestep)
+
+    def getFaceByName(self, name):
+        '''Search over the set of faces by name'''
+        for f in self.faces:
+            if name in f.name:
+                return f
+        return None
+
                         
 class PandaHand(pb_robot.body.Body):
     '''Set position commands for the panda hand. Have not yet included

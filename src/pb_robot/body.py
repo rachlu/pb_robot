@@ -43,6 +43,7 @@ class Body(object):
         self.num_links = p.getNumJoints(self.id, physicsClientId=CLIENT)
         self.links = [Link(self, l) for l in range(self.num_links)]
         self.all_links = [Link(self, self.base_link)] + self.links
+        self.faces = []
         # get_link_info = get_dynamics_info
         # joint id -> Joint Class is just self.joints[jointID]
 
@@ -196,7 +197,7 @@ class Body(object):
         return self.joints[index]
 
     def get_configuration(self): 
-        return self.get_joint_positions(self.get_movable_joints())
+        return numpy.array(self.get_joint_positions(self.get_movable_joints()))
 
     def set_configuration(self, values): 
         self.set_joint_positions(self.get_movable_joints(), values)
@@ -392,6 +393,12 @@ class Body(object):
         except ValueError:
             print("Friction Not Set, defaulting to zero")
             return 0 
+
+    def getFaceByName(self, name):
+        for f in self.faces:
+            if name in f.name:
+                return f
+        return None
 
     def Grab(self, obj, relation):
         '''Attach an object to the robot by storing the object and 
