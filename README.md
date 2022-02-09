@@ -6,7 +6,7 @@ This is a fork of [Caelan's ss-pybullet](https://github.com/caelan/ss-pybullet) 
 
 The first thing is to install the primary two python dependencies: 
 ```
-$ pip install numpy pybullet
+$ pip install numpy pybullet recordclass networkx
 ```
 
 Given that, we now setup a catkin workspace. While there are not known dependencies, these instructions were writen from Ubuntu 16.04 and ROS Kinetic. For this installation we will assume ROS is already installed. To create a catkin workspace (named `my-workspace` below): 
