@@ -66,6 +66,13 @@ def draw_pose(pose, length=0.1, **kwargs):
         handles.append(add_line(origin_world, axis_world, color=axis, **kwargs))
     return handles
 
+def draw_tform(tform, **kwargs):
+    return draw_pose(pb_robot.geometry.pose_from_tform(tform), **kwargs)
+
+def draw_tsr(tsr, count=25, **kwargs):
+    for i in range(count):
+        draw_tform(tsr.sample())
+
 def draw_base_limits(limits, z=1e-2, **kwargs):
     lower, upper = limits
     vertices = [(lower[0], lower[1], z), (lower[0], upper[1], z),
