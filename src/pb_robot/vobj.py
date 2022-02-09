@@ -82,6 +82,13 @@ class BodyConf(object):
     def __repr__(self):
         return 'q{}'.format(id(self) % 1000)
 
+class ObjConf(object):
+    def __init__(self, obj, configuration):
+        self.obj = obj
+        self.configuration = configuration
+    def __repr__(self):
+        return 'qb{}'.format(id(self) % 1000)
+
 class BodyWrench(object):
     def __init__(self, body, ft):
         self.body = body
