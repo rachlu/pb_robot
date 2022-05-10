@@ -146,8 +146,8 @@ class CartImpedPath(object):
         self.timestep = timestep
     def simulate(self):
         q = self.manip.GetJointValues()
-        if numpy.linalg.norm(numpy.subtract(q, self.start_q)) > 1e-3:
-            raise IOError("Incorrect starting position")
+        #if numpy.linalg.norm(numpy.subtract(q, self.start_q)) > 1e-3:
+        #    raise IOError("Incorrect starting position")
         # Going to fake cartesian impedance control
         for i in xrange(len(self.ee_path)):
             q = self.manip.ComputeIK(self.ee_path[i], seed_q=q)
@@ -170,3 +170,18 @@ class CartImpedPath(object):
 
     def __repr__(self):
         return 'ci_path{}'.format(id(self) % 1000)
+
+class ResetForCart(object):
+    def __init__(self, manip, start_q):
+        self.manip = manip
+        self.start_q = start_q
+
+    def simulate(self):
+        pass
+
+    def execute(self, realRobot=None):
+        qreal = realRobot.joint_angles()
+        realRobot.move_to_joint_positions(qreal)
+
+    def __repr__(self):
+        return 'ci_reset{}'.format(id(self) % 1000)
