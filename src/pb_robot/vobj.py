@@ -194,3 +194,18 @@ class CartImpedPath(object):
 
     def __repr__(self):
         return 'ci_path{}'.format(id(self) % 1000)
+
+class ResetForCart(object):
+    def __init__(self, manip, start_q):
+        self.manip = manip
+        self.start_q = start_q
+
+    def simulate(self):
+        pass
+
+    def execute(self, realRobot=None):
+        qreal = realRobot.joint_angles()
+        realRobot.move_to_joint_positions(qreal)
+
+    def __repr__(self):
+        return 'ci_reset{}'.format(id(self) % 1000)
