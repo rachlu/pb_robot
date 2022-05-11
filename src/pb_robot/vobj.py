@@ -49,6 +49,28 @@ class BodyGrasp(object):
     def __repr__(self):
         return 'g{}'.format(id(self) % 1000)
 
+class OpenHand(object):
+    def __init__(self, manip):
+        self.manip = manip
+    def simulate(self):
+        self.manip.hand.Open()
+    def execute(self, realRobot=None):
+        realRobot.hand.open()
+    def __repr__(self):
+        return 'open{}'.format(id(self) % 1000)
+
+class CloseHand(object):
+    def __init__(self, manip, N=40):
+        self.manip = manip
+        self.N = N
+    def simulate(self):
+        self.manip.hand.MoveTo(0.01)
+    def execute(self, realRobot=None):
+        realRobot.hand.grasp(0.02, self.N, epsilon_inner=0.1, epsilon_outer=0.1)
+    def __repr__(self):
+        return 'close{}'.format(id(self) % 1000)
+
+
 class ViseGrasp(object):
     def __init__(self, body, grasp_objF, hand, N=60):
         self.body = body
@@ -146,7 +168,9 @@ class CartImpedPath(object):
         self.timestep = timestep
     def simulate(self):
         q = self.manip.GetJointValues()
-        if numpy.linalg.norm(numpy.subtract(q, self.start_q)) > 1e-3:
+        delta_q = numpy.linalg.norm(numpy.subtract(q, self.start_q))
+        delta_pose = pb_robot.geometry.GeodesicDistance(self.manip.ComputeFK(q), self.manip.ComputeFK(self.start_q))
+        if (delta_pose > 1e-3) and (delta_q > 1e-1):
             raise IOError("Incorrect starting position")
         # Going to fake cartesian impedance control
         for i in xrange(len(self.ee_path)):
@@ -155,7 +179,7 @@ class CartImpedPath(object):
             time.sleep(self.timestep)
     def execute(self, realRobot=None):
         import quaternion
-        #FIXME adjustment based on current position..? Need to play with how execution goes.
+        # Adjustment based on current position..? Need to play with how execution goes.
         sim_start = self.ee_path[0, 0:3, 3]
         real_start = realRobot.endpoint_pose()['position']
         sim_real_diff = numpy.subtract(sim_start, real_start)
