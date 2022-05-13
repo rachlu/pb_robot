@@ -23,7 +23,7 @@ class RelativePose(object):
         return 'rp{}'.format(id(self) % 1000)
 
 class BodyGrasp(object):
-    def __init__(self, body, grasp_objF, manip, r=0.0085, mu=None, N=40):
+    def __init__(self, body, grasp_objF, manip, r=0.0085, mu=None, N=50):
         self.body = body
         self.grasp_objF = grasp_objF #Tform
         self.manip = manip
@@ -42,7 +42,7 @@ class BodyGrasp(object):
             self.manip.Grab(self.body, self.grasp_objF)
     def execute(self, realRobot=None):
         hand_pose = realRobot.hand.joint_positions()
-        if hand_pose['panda_finger_joint1'] < 0.039: # open pose
+        if hand_pose['panda_finger_joint1'] < 0.035: # open pose
             realRobot.hand.open()
         else:
             realRobot.hand.grasp(0.02, self.N, epsilon_inner=0.1, epsilon_outer=0.1)
