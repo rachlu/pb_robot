@@ -237,3 +237,68 @@ def bar_grasp(box, push_distance=0.0,
         rotated_chain_list += [ tsr_chain_new ]
 
     return chain_list #+ rotated_chain_list
+
+def potato_grasp(box, push_distance=0.0,
+                width_offset=0.0,
+                **kw_args):
+    """
+    @param box The box to grasp
+    @param push_distance The distance to push before grasping
+    """
+    ee_to_palm_distance = 0.098 
+    lateral_offset=ee_to_palm_distance + push_distance
+
+    T0_w = box.get_transform()
+    chain_list = []
+
+    Tw_e_top = numpy.array([[ 0., 1.,  0., 0.0],
+                            [ 1., 0.,  0., 0.0],
+                            [ 0., 0., -1., lateral_offset],
+                            [ 0., 0.,  0., 1.]])
+
+    Bw_top = numpy.zeros((6,2))
+    Bw_top[1, :] = [-0.08, 0.08]
+    Bw_top[2, :] = [ 0.01, 0.02]
+    top_tsr = TSR(T0_w = T0_w, Tw_e = Tw_e_top, Bw = Bw_top)
+    grasp_chain_top = TSRChain(sample_start=False, sample_goal=True,
+                                constrain=False, TSR=top_tsr)
+    chain_list += [ grasp_chain_top]
+
+    Tw_e_side1 = numpy.array([[ 0., -1.,  0., 0.],
+                              [ 0.,  0., -1., lateral_offset+0.06],
+                              [ 1.,  0.,  0., 0.0],
+                              [ 0.,  0.,  0., 1.]])
+
+    Tw_e_side2 = numpy.array([[ 0.,  1.,  0., 0.],
+                              [ 0.,  0.,  1., -lateral_offset-0.06],
+                              [ 1.,  0.,  0., 0.0],
+                              [ 0.,  0.,  0., 1.]])
+    Bw_side = numpy.zeros((6,2))
+    Bw_side[2,:] = [-0.02, 0.02]
+    side_tsr1 = TSR(T0_w = T0_w, Tw_e = Tw_e_side1, Bw = Bw_side)
+    grasp_chain_side1 = TSRChain(sample_start=False, sample_goal=True,
+                                  constrain=False, TSR=side_tsr1)
+    chain_list += [ grasp_chain_side1 ]
+
+    side_tsr2 = TSR(T0_w = T0_w, Tw_e = Tw_e_side2, Bw = Bw_side)
+    grasp_chain_side2 = TSRChain(sample_start=False, sample_goal=True,
+                                  constrain=False, TSR=side_tsr2)
+    chain_list += [ grasp_chain_side2 ]
+
+    # Each chain in the list can also be rotated by 180 degrees around z
+    rotated_chain_list = []
+    for c in chain_list:
+        rval = numpy.pi
+        R = numpy.array([[numpy.cos(rval), -numpy.sin(rval), 0., 0.],
+                         [numpy.sin(rval),  numpy.cos(rval), 0., 0.],
+                         [             0.,               0., 1., 0.],
+                         [             0.,               0., 0., 1.]])
+        tsr = c.TSRs[0]
+        Tw_e = tsr.Tw_e
+        Tw_e_new = numpy.dot(Tw_e, R)
+        tsr_new = TSR(T0_w = tsr.T0_w, Tw_e=Tw_e_new, Bw=tsr.Bw)
+        tsr_chain_new = TSRChain(sample_start=False, sample_goal=True, constrain=False,
+                                     TSR=tsr_new)
+        rotated_chain_list += [ tsr_chain_new ]
+
+    return chain_list + rotated_chain_list
