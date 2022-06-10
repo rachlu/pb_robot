@@ -5,7 +5,7 @@ import pb_robot
 class WSG32Hand(pb_robot.body.Body):
     '''Set position commands for the panda hand. Have not yet included
     gripping with force.'''
-    def __init__(self, bodyID=None, left_finger_name='base_joint_gripper_left', right_finger_name='base_joint_gripper_right'):
+    def __init__(self, bodyID=None, left_finger_name='wsg_50_gripper_base_joint_gripper_left', right_finger_name='wsg_50_gripper_base_joint_gripper_right'):
         '''Pull left and right fingers from robot's joint list'''
         if bodyID is None:
             urdf_file = 'models/wsg32_description/wsg_32.urdf'
@@ -19,26 +19,26 @@ class WSG32Hand(pb_robot.body.Body):
 
     def Open(self):
         '''Open the fingers by setting their positions to the upper limit'''
-        self.left_finger.set_joint_position(-0.055)
-        self.right_finger.set_joint_position(0.055)
+        self.left_finger.set_joint_position(-0.028)
+        self.right_finger.set_joint_position(0.028)
 
     def Close(self):
         '''Close the fingers by setting their positions to the inner limit'''
-        self.left_finger.set_joint_position(-0.0027)
-        self.right_finger.set_joint_position(0.0027)
+        self.left_finger.set_joint_position(0.0)
+        self.right_finger.set_joint_position(0.0)
 
     def MoveTo(self, left_distance, right_distance):
         '''Move the fingers uniformally such that 'distance' is the width
         between the two fingers. Therefore, each each finger will move 
         distance/2. 
         @param distance Desired distance between fingers'''
-        # left: limit lower="-0.055" upper="-0.0027"
-        # right: lower="0.0027" upper="0.055"
+        # left: Limits: (-0.028, 0.0)
+        # right: Limits: (0.0, 0.028)
 
-        if not (-0.055 <= left_distance <= -0.0027):
-            raise IOError("Invalid distance request. The value must be between -0.055 and -0.0027")
-        if not (0.0027 <= right_distance <= 0.055):
-            raise IOError("Invalid distance request. The value must be between 0.027 and 0.055")
+        if not (-0.028 <= left_distance <= 0):
+            raise IOError("Invalid distance request. The value must be between -0.028 and 0")
+        if not (0 <= right_distance <= 0.028):
+            raise IOError("Invalid distance request. The value must be between 0 and 0.028")
 
         self.left_finger.set_joint_position(left_distance)
         self.right_finger.set_joint_position(right_distance)
