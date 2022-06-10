@@ -9,6 +9,7 @@ import viz
 import collisions
 import panda
 import wsg50_hand
+import wsg32_hand
 import yumi
 
 import tsrs
