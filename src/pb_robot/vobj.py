@@ -75,8 +75,13 @@ class ViseGrasp(object):
     def __init__(self, body, grasp_objF, hand, N=60):
         self.body = body
         self.grasp_objF = grasp_objF #Tform
-        self.hand = pb_robot.wsg50_hand.WSG50Hand(hand.id)
         self.N = N
+        self.hand50 = True
+        if '32' in hand.get_name():
+            self.hand = pb_robot.wsg32_hand.WSG32Hand(hand.id)
+            self.hand50 = False
+        else:
+            self.hand = pb_robot.wsg50_hand.WSG50Hand(hand.id)
     def simulate(self):
         if self.body.get_name() in self.hand.grabbedObjects:
             # Object grabbed, need to release
@@ -84,12 +89,15 @@ class ViseGrasp(object):
             self.hand.Release(self.body)
         else:
             # Object not grabbed, need to grab
-            #self.hand.Close()
-            self.hand.MoveTo(-0.04, 0.04) 
+            self.hand.Close()
+            #self.hand.MoveTo(-0.04, 0.04) 
             self.hand.Grab(self.body, self.grasp_objF)
     def execute(self, realRobot=None):
         # This is a bad work-around
-        realhand = pb_robot.wsg50_hand.WSG50HandReal()
+        if hand50:
+            realhand = pb_robot.wsg50_hand.WSG50HandReal()
+        else:
+            realhand = pb_robot.wsg32_hand.WSG32HandReal()
         if realhand.get_width < realhand.openValue: 
             realhand.open()
         else:
