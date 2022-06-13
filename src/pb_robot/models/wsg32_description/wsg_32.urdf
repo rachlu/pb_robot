@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<robot name="wsg_32_description">
+<robot name="wsg32_hand">
   <link name="hand_link">
     <inertial>
       <origin xyz="-6.56023314178677E-06 -0.00175309107853196 0.0266239521718502" rpy="0 0 0" />
