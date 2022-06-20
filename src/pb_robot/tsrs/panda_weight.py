@@ -2,24 +2,22 @@ import numpy, math
 from tsr.tsrlibrary import TSRFactory
 from tsr.tsr import TSR, TSRChain
 
-def weight_grasp(nut, push_distance=0.0,
-                width_offset=0.0,
-                **kw_args):
+def weight_grasp(weight, **kw_args):
     """
-    @param nut The nut to grasp
+    @param nut The weight to grasp
     @param push_distance The distance to push before grasping
     """
-    epsilon = 0.005
     ee_to_palm_distance = 0.105 
-    lateral_offset=ee_to_palm_distance + push_distance
+    handle_distance = 0.1
+    lateral_offset=ee_to_palm_distance + handle_distance
 
-    T0_w = nut.get_transform()
+    T0_w = weight.get_transform()
     chain_list = []
     
     # Top and Bottom sides
     Tw_e_side1 = numpy.array([[ 1., 0.,  0., 0.0],
                               [ 0.,-1.,  0., 0.0],
-                              [ 0., 0., -1., lateral_offset+0.13],
+                              [ 0., 0., -1., lateral_offset],
                               [ 0., 0.,  0., 1.]])
     Bw_side = numpy.zeros((6,2))
 
