@@ -199,7 +199,7 @@ class Manipulator(object):
         @return Boolean True if without collisions, false otherwise'''
         # This is to cover that the collision function sets joints, but not using the arm version
         oldq = self.GetJointValues()
-        self.SetJointValues(oldq)
+        self.SetJointValues(q)
 
         collisionfn = self.get_collisionfn(obstacles=obstacles, self_collisions=self_collisions)
 
