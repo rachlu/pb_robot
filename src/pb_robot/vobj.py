@@ -29,7 +29,12 @@ class BodyGrasp(object):
         self.manip = manip
         self.r = r
         self.mu = mu
-        self.N = N
+
+        #XXX this is a bad workaround
+        if 'potato' in self.body.get_name() or 'blocker' in self.body.get_name():
+            self.N = 30
+        else:
+            self.N = N
     def simulate(self):
         if self.body.get_name() in self.manip.grabbedObjects:
             # Object grabbed, need to release
@@ -41,6 +46,7 @@ class BodyGrasp(object):
             self.manip.hand.MoveTo(0.01)
             self.manip.Grab(self.body, self.grasp_objF)
     def execute(self, realRobot=None):
+        print('Grasping {} with {}'.format(self.body.get_name(), self.N))
         hand_pose = realRobot.hand.joint_positions()
         if hand_pose['panda_finger_joint1'] < 0.035: # open pose
             realRobot.hand.open()
@@ -94,7 +100,7 @@ class ViseGrasp(object):
             self.hand.Grab(self.body, self.grasp_objF)
     def execute(self, realRobot=None):
         # This is a bad work-around
-        if hand50:
+        if self.hand50:
             realhand = pb_robot.wsg50_hand.WSG50HandReal()
         else:
             realhand = pb_robot.wsg32_hand.WSG32HandReal()
