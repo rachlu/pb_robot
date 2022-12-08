@@ -9,14 +9,15 @@ from pb_robot.link import Link
 CLIENT = 0
 
 JOINT_TYPES = {
-    p.JOINT_REVOLUTE: 'revolute', # 0
-    p.JOINT_PRISMATIC: 'prismatic', # 1
-    p.JOINT_SPHERICAL: 'spherical', # 2
-    p.JOINT_PLANAR: 'planar', # 3
-    p.JOINT_FIXED: 'fixed', # 4
-    p.JOINT_POINT2POINT: 'point2point', # 5
-    p.JOINT_GEAR: 'gear', # 6
+    p.JOINT_REVOLUTE: 'revolute',  # 0
+    p.JOINT_PRISMATIC: 'prismatic',  # 1
+    p.JOINT_SPHERICAL: 'spherical',  # 2
+    p.JOINT_PLANAR: 'planar',  # 3
+    p.JOINT_FIXED: 'fixed',  # 4
+    p.JOINT_POINT2POINT: 'point2point',  # 5
+    p.JOINT_GEAR: 'gear',  # 6
 }
+
 
 def createBody(path, **kwargs):
     with pb_robot.helper.HideOutput():
@@ -24,15 +25,17 @@ def createBody(path, **kwargs):
             body_id = pb_robot.utils.load_model(path, **kwargs)
     return Body(body_id, path)
 
+
 BodyInfo = namedtuple('BodyInfo', ['base_name', 'body_name'])
 DynamicsInfo = namedtuple('DynamicsInfo', ['mass', 'lateral_friction', 'local_inertia_diagonal',
                                            'local_inertial_pos', 'local_inertial_orn',
                                            'restitution', 'rolling_friction', 'spinning_friction',
                                            'contact_damping', 'contact_stiffness'])
 
+
 class Body(object):
     def __init__(self, bodyID, path=None):
-        #self.id = utils.load_model(info, **kwargs)
+        # self.id = utils.load_model(info, **kwargs)
         self.id = bodyID
         self.base_link = -1
         self.static_mass = 0
@@ -60,8 +63,10 @@ class Body(object):
         self.all_link_children = None
 
     def __repr__(self):
-        if self.readableName is None: return self.get_name()
-        else: return self.readableName
+        if self.readableName is None:
+            return self.get_name()
+        else:
+            return self.readableName
 
     def get_info(self):
         return self.BodyInfo(*p.getBodyInfo(self.id, physicsClientId=CLIENT))
@@ -100,7 +105,7 @@ class Body(object):
         return self.get_pose()[0]
 
     def get_quat(self):
-        return self.get_pose()[1] # [x,y,z,w]
+        return self.get_pose()[1]  # [x,y,z,w]
 
     def get_euler(self):
         return pb_robot.geometry.euler_from_quat(self.get_quat())
@@ -114,7 +119,7 @@ class Body(object):
         ##
         # If exists grabbed object, update its position too
         if len(self.grabbedObjects.keys()) > 0:
-            #hand_worldF = self.GetEETransform()
+            # hand_worldF = self.GetEETransform()
             for i in self.grabbedObjects.keys():
                 obj = self.grabbedObjects[i]
                 grasp_objF = self.grabbedRelations[i]
@@ -141,7 +146,7 @@ class Body(object):
 
     def get_velocity(self):
         linear, angular = p.getBaseVelocity(self.id, physicsClientId=CLIENT)
-        return linear, angular # [x,y,z], [wx,wy,wz]
+        return linear, angular  # [x,y,z], [wx,wy,wz]
 
     def set_velocity(self, linear=None, angular=None):
         if linear is not None:
@@ -155,7 +160,7 @@ class Body(object):
                 return False
         return True
 
-    def joint_from_name(self, name): 
+    def joint_from_name(self, name):
         for j in self.joints:
             if j.get_joint_name() == name:
                 return j
@@ -163,7 +168,7 @@ class Body(object):
 
     def link_from_name(self, name):
         if name == self.get_base_name():
-            #return self.base_link
+            # return self.base_link
             return Link(self, self.base_link)
         for link in self.links:
             if link.get_link_name() == name:
@@ -187,33 +192,33 @@ class Body(object):
     def joints_from_names(self, names):
         return tuple(self.joint_from_name(name) for name in names)
 
-    def child_link_from_joint(self, joint): #XXX input type?
-        return joint # link
+    def child_link_from_joint(self, joint):  # XXX input type?
+        return joint  # link
 
-    def parent_joint_from_link(self, link): #XXX input type?
-        return link # joint
+    def parent_joint_from_link(self, link):  # XXX input type?
+        return link  # joint
 
     def joint_from_movable(self, index):
         return self.joints[index]
 
-    def get_configuration(self): 
+    def get_configuration(self):
         return numpy.array(self.get_joint_positions(self.get_movable_joints()))
 
-    def set_configuration(self, values): 
+    def set_configuration(self, values):
         self.set_joint_positions(self.get_movable_joints(), values)
 
     def get_full_configuration(self):
         # Cannot alter fixed joints
         return self.get_joint_positions(self.joints)
 
-    def get_labeled_configuration(self): 
+    def get_labeled_configuration(self):
         movable_joints = self.get_movable_joints()
         return dict(zip(self.get_joint_names(movable_joints),
                         self.get_joint_positions(movable_joints)))
 
     def format_joint_input(self, joints):
         # Process through all of the input types and return actual joints
-        if joints is None: 
+        if joints is None:
             # If none, return all joints
             return self.joints
         elif isinstance(joints, int):
@@ -227,11 +232,11 @@ class Body(object):
             return [joints]
         elif isinstance(joints, list):
             # Sort thru list and return based on type
-            return [self.format_joint_input(j)[0] for j in joints] 
-        else: 
+            return [self.format_joint_input(j)[0] for j in joints]
+        else:
             raise ValueError("Joint Input Type Not Supported")
 
-    def get_movable_joints(self, joints=None): 
+    def get_movable_joints(self, joints=None):
         return self.prune_fixed_joints(self.format_joint_input(joints))
 
     def prune_fixed_joints(self, joints=None):
@@ -249,7 +254,7 @@ class Body(object):
     def get_joint_velocities(self, joints=None):
         return tuple(j.get_joint_velocity() for j in self.format_joint_input(joints))
 
-    def wrap_positions(self, joints, positions): 
+    def wrap_positions(self, joints, positions):
         assert len(joints) == len(positions)
         fjoints = self.format_joint_input(joints)
         return [j.wrap_position(position) for j, position in zip(fjoints, positions)]
@@ -258,7 +263,7 @@ class Body(object):
         fjoints = self.format_joint_input(joints)
         return any(j.violates_limit(v) for j, v in zip(fjoints, values))
 
-    def set_joint_positions(self, joints, values): 
+    def set_joint_positions(self, joints, values):
         assert len(joints) == len(values)
         for joint, value in zip(self.format_joint_input(joints), values):
             joint.set_joint_position(value)
@@ -286,17 +291,17 @@ class Body(object):
         return zip(*joint_limits)
 
     def is_fixed_base(self):
-        return self.get_mass() == self.static_mass 
+        return self.get_mass() == self.static_mass
 
     def get_num_links(self):
         return len(self.links)
 
     def get_adjacent_links(self):
         adjacent = set()
-        for link in self.links: 
+        for link in self.links:
             parent = link.get_link_parent()
             adjacent.add((link, parent))
-            #adjacent.add((parent, link))
+            # adjacent.add((parent, link))
         return adjacent
 
     def get_adjacent_fixed_links(self):
@@ -366,8 +371,8 @@ class Body(object):
         # TOOD: get full mass
         if linkID is None:
             linkID = self.base_link
-        #return self.get_dynamics_info(linkID).mass
-        #TODO hack for now: 
+        # return self.get_dynamics_info(linkID).mass
+        # TODO hack for now:
         return p.getDynamicsInfo(self.id, linkID)[0]
 
     def set_dynamics(self, linkID=None, **kwargs):
@@ -386,19 +391,27 @@ class Body(object):
             self.set_mass(mass=self.static_mass, linkID=link.linkID)
 
     def grasp_mu(self):
-        #TODO A bit of a hack
-        try: 
-            j = self.joint_from_name('com_joint') 
-            return j.get_joint_info().jointFriction 
+        # TODO A bit of a hack
+        try:
+            j = self.joint_from_name('com_joint')
+            return j.get_joint_info().jointFriction
         except ValueError:
             print("Friction Not Set, defaulting to zero")
-            return 0 
+            return 0
 
     def getFaceByName(self, name):
         for f in self.faces:
             if name in f.name:
                 return f
         return None
+
+    def setIK(self, ik):
+        self.ik = ik
+
+    def computeIK(self, pose_worldF):
+        if self.ik is None:
+            raise NotImplementedError('IK function not set. Use setIK(ik)')
+        return self.ik(pose_worldF)
 
     def Grab(self, obj, relation):
         '''Attach an object to the robot by storing the object and 
@@ -426,13 +439,14 @@ class Body(object):
         link = -1
         print('Link id: {} | Name: {} | Mass: {} | Collision: {} | Visual: {}'.format(
             link, self.get_base_name(), self.get_mass(),
-            len(pb_robot.utils.get_collision_data(self, self.base_link)), -1)) # len(get_visual_data(body, link))))
+            len(pb_robot.utils.get_collision_data(self, self.base_link)), -1))  # len(get_visual_data(body, link))))
 
         for link in self.links:
             pjoint = link.parentJoint
-            joint_name = JOINT_TYPES[pjoint.get_joint_type()] if pjoint.is_fixed() else pjoint.get_joint_name() 
+            joint_name = JOINT_TYPES[pjoint.get_joint_type()] if pjoint.is_fixed() else pjoint.get_joint_name()
             print('Link id: {} | Name: {} | Joint: {} | Parent: {} | Mass: {} | Collision: {} | Visual: {}'.format(
                 link.linkID, link.get_link_name(), joint_name,
                 (link.get_link_parent()).get_link_name(), self.get_mass(link.linkID),
-                len(pb_robot.utils.get_collision_data(self, link.linkID)), -1)) # len(get_visual_data(body, link)))) #XXX move this function from utils
+                len(pb_robot.utils.get_collision_data(self, link.linkID)),
+                -1))  # len(get_visual_data(body, link)))) #XXX move this function from utils
 
