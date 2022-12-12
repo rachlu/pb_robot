@@ -207,7 +207,7 @@ class Manipulator(object):
                 return self.ComputeIK(transform)
         return q
 
-    def ComputeIKQ(self, transform, seed_q, max_distance=0.2):
+    def ComputeIKQ(self, transform, seed_q, max_distance=0.3):
         '''Compute the inverse kinematics of a transform, with the option
         to bias towards a seed configuration. If no IK can be found with that
         bias we attempt to find an IK without that bias
