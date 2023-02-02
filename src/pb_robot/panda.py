@@ -123,6 +123,8 @@ class Manipulator(object):
                 elif self.grabbedTypes[i] == 'M':
                     conf = obj.computeIK(obj_worldF)
                     obj.set_configuration(conf)
+                else:
+                    print('Not a Rigid body or mechanism')
 
     def GetJointLimits(self):
         '''Return the upper and lower joint position limits
